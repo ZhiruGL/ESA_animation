@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Functional Diversity Metrics: Sensitivity to Central Point Removal</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: #fff;
+  }
+  .wrap {
+    display: flex; flex-direction: column; align-items: center;
+    height: 100%; width: 100%;
+    background: #fff; border: 1px solid #eee; border-radius: 12px;
+    padding: 20px; box-sizing: border-box;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+  }
+  .header {
+    margin-bottom: 14px; font-weight: bold; font-size: 1.15em; color: #333;
+    text-align: center;
+  }
+  .header span#removal-display { color: #e74c3c; }
+  .panels {
+    display: flex; flex-direction: row; gap: 15px; width: 100%; flex: 1; min-height: 0;
+  }
+  .panel {
+    flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0;
+  }
+  .panel-title {
+    font-size: 0.75em; color: #666; margin-bottom: 5px; font-weight: bold;
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .panel-canvas {
+    position: relative; width: 100%; flex: 1; min-height: 260px;
+    background: #fafafa; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;
+  }
+  .panel-canvas svg { width: 100%; height: 100%; display: block; }
+  .metric {
+    margin-top: 6px; font-size: 0.78em; color: #444; font-variant-numeric: tabular-nums;
+  }
+  .metric b { color: #111; }
+  .slider-row {
+    width: 100%; display: flex; align-items: center; gap: 12px; margin-top: 18px;
+  }
+  input[type="range"] {
+    flex: 1; height: 12px; cursor: pointer; accent-color: #e74c3c;
+  }
+  .legend {
+    display: flex; gap: 18px; margin-top: 10px; font-size: 0.72em; color: #666;
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    Proportion of Central Points Removed: <span id="removal-display">0</span>%
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-title">1. Convex Hull</div>
+      <div class="panel-canvas">
+        <svg id="viz-hull" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+      <div class="metric">Functional Richness: <b id="hull-area">–</b></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">2. Alpha Shape</div>
+      <div class="panel-canvas">
+        <svg id="viz-alpha" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+      <div class="metric">Functional Richness: <b id="alpha-area">–</b></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">3. 95% Hypervolume</div>
+      <div class="panel-canvas">
+        <svg id="viz-hyper" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+      <div class="metric">Functional Richness: <b id="hyper-area">–</b></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><span class="swatch" style="background:#333;"></span> retained point</div>
+    <div class="legend-item"><span class="swatch" style="background:#ccc;"></span> removed point</div>
+  </div>
+
+  <div class="slider-row">
+    <input type="range" id="master-slider" min="0" max="70" value="0">
+  </div>
+</div>
+
+<script>
+(function(){
+
+// ================= Geometry primitives =================
+function convexHull(points) {
+  const pts = points.slice().sort((a,b) => a[0]-b[0] || a[1]-b[1]);
+  const cross = (o,a,b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
+  const lower = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper = [];
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i];
+    while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  lower.pop(); upper.pop();
+  return lower.concat(upper);
+}
+
+function polygonArea(poly) {
+  let a = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const [x1,y1] = poly[i];
+    const [x2,y2] = poly[(i+1)%poly.length];
+    a += x1*y2 - x2*y1;
+  }
+  return Math.abs(a)/2;
+}
+
+function circumcircle(a,b,c) {
+  const ax=a[0], ay=a[1], bx=b[0], by=b[1], cx=c[0], cy=c[1];
+  const d = 2*(ax*(by-cy)+bx*(cy-ay)+cx*(ay-by));
+  if (Math.abs(d) < 1e-10) return null;
+  const ux = ((ax*ax+ay*ay)*(by-cy)+(bx*bx+by*by)*(cy-ay)+(cx*cx+cy*cy)*(ay-by))/d;
+  const uy = ((ax*ax+ay*ay)*(cx-bx)+(bx*bx+by*by)*(ax-cx)+(cx*cx+cy*cy)*(bx-ax))/d;
+  const r = Math.hypot(ax-ux, ay-uy);
+  return {x: ux, y: uy, r: r};
+}
+
+function delaunay(points) {
+  const xs = points.map(p=>p[0]), ys = points.map(p=>p[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const dx = maxX-minX, dy = maxY-minY, dmax = Math.max(dx,dy)*10 + 10;
+  const midX = (minX+maxX)/2, midY = (minY+maxY)/2;
+  const st = [
+    [midX - 2*dmax, midY - dmax],
+    [midX, midY + 2*dmax],
+    [midX + 2*dmax, midY - dmax]
+  ];
+  let triangles = [[st[0], st[1], st[2]]];
+
+  for (const p of points) {
+    const badTriangles = [];
+    for (const t of triangles) {
+      const cc = circumcircle(t[0], t[1], t[2]);
+      if (cc && Math.hypot(cc.x - p[0], cc.y - p[1]) < cc.r + 1e-9) badTriangles.push(t);
+    }
+    const polygon = [];
+    for (const t of badTriangles) {
+      const edges = [[t[0],t[1]],[t[1],t[2]],[t[2],t[0]]];
+      for (const e of edges) {
+        let shared = false;
+        for (const t2 of badTriangles) {
+          if (t2 === t) continue;
+          const e2s = [[t2[0],t2[1]],[t2[1],t2[2]],[t2[2],t2[0]]];
+          for (const e2 of e2s) {
+            if ((e[0]===e2[0] && e[1]===e2[1]) || (e[0]===e2[1] && e[1]===e2[0])) shared = true;
+          }
+        }
+        if (!shared) polygon.push(e);
+      }
+    }
+    triangles = triangles.filter(t => badTriangles.indexOf(t) === -1);
+    for (const e of polygon) triangles.push([e[0], e[1], p]);
+  }
+
+  triangles = triangles.filter(t => !t.some(v => st.indexOf(v) !== -1));
+  return triangles;
+}
+
+function triArea(a,b,c) {
+  return Math.abs((b[0]-a[0])*(c[1]-a[1]) - (c[0]-a[0])*(b[1]-a[1])) / 2;
+}
+
+function alphaShapeTriangles(points, alphaPercentile) {
+  if (points.length < 3) return { triangles: [], area: 0 };
+  const tris = delaunay(points);
+  const withR = tris.map(t => {
+    const cc = circumcircle(t[0], t[1], t[2]);
+    return { t: t, r: cc ? cc.r : Infinity };
+  }).filter(x => isFinite(x.r));
+  const radii = withR.map(x => x.r).sort((a,b)=>a-b);
+  if (radii.length === 0) return { triangles: [], area: 0 };
+  const idx = Math.min(radii.length - 1, Math.floor(alphaPercentile * (radii.length - 1)));
+  const alpha = radii[idx];
+  const kept = withR.filter(x => x.r <= alpha).map(x => x.t);
+  const area = kept.reduce((s,t) => s + triArea(t[0],t[1],t[2]), 0);
+  return { triangles: kept, area: area };
+}
+
+function gridHypervolume(points, bounds, targetMass, cell, bandwidth) {
+  const minX = bounds[0], maxX = bounds[1], minY = bounds[2], maxY = bounds[3];
+  const cols = Math.ceil((maxX-minX)/cell);
+  const rows = Math.ceil((maxY-minY)/cell);
+  const grid = [];
+  for (let r = 0; r < rows; r++) grid.push(new Array(cols).fill(0));
+  const h2 = bandwidth*bandwidth;
+  for (let r = 0; r < rows; r++) {
+    const cy = minY + (r+0.5)*cell;
+    for (let c = 0; c < cols; c++) {
+      const cx = minX + (c+0.5)*cell;
+      let dens = 0;
+      for (const p of points) {
+        const ddx = p[0]-cx, ddy = p[1]-cy;
+        dens += Math.exp(-(ddx*ddx+ddy*ddy)/(2*h2));
+      }
+      grid[r][c] = dens;
+    }
+  }
+  const flat = [];
+  let total = 0;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) { flat.push({r:r,c:c,v:grid[r][c]}); total += grid[r][c]; }
+  flat.sort((a,b) => b.v - a.v);
+  const cellsOn = [];
+  let acc = 0;
+  for (const f of flat) {
+    if (acc >= targetMass * total) break;
+    acc += f.v;
+    cellsOn.push(f);
+  }
+  const cellArea = cell*cell;
+  return { cellsOn: cellsOn, cell: cell, minX: minX, minY: minY, area: cellsOn.length * cellArea };
+}
+
+// ================= Data =================
+const RAW_POINTS = [
+[291.92,155.42],[293.69,171.02],[290.58,173.79],[288.48,186.99],[278.24,203.01],[281.95,210.88],
+[263.84,218.18],[262.94,224.25],[251.13,237.02],[247.27,236.57],[226.82,238.38],[219.71,240.3],
+[213.46,242.32],[205.27,257.09],[191.09,242.61],[182.73,256.95],[168.17,252.37],[161.89,242.48],
+[158.35,232.24],[139.83,231.14],[133.66,226.55],[130.66,213.9],[113.06,204.9],[118.99,191.06],
+[114.48,183.78],[105.9,177.22],[102.04,157.64],[112.12,142.79],[107.47,130.6],[114.68,120.75],
+[117.03,120.08],[114.31,103.58],[115.03,86.2],[120.41,83.65],[139.75,72.74],[146.88,68.85],
+[148.04,53.47],[152.47,47.02],[168.74,41.3],[179.59,44.77],[189.22,42.78],[200,39.72],
+[210.26,45.75],[227.88,45.21],[241.3,46.97],[242.81,55.05],[246.67,67.26],[260.3,73.87],
+[275.88,75.65],[272.14,83.4],[277.11,103.87],[282.47,115.34],[293.25,120.56],[289.68,127.51],
+[295.26,137.9],[211.78,174.13],[211.77,181.19],[187.02,139.38],[220.95,152.01],[166.54,210.97],
+[192,139.04],[246.01,210.17],[233.13,180.49],[189.81,103.26],[182.3,122.98],[191.9,115.44],
+[168.84,120.23],[177.4,153.84],[178.31,186.55],[246.58,157.86],[170.46,173.17],[179.57,194.64],
+[218.76,131.92],[152.38,154.05],[156.34,141.68],[208.85,174.01],[235.34,129.43],[222.92,132.54],
+[210.65,126.51],[228.68,129.67],[190.82,177.9],[194.53,155.81],[188.43,137.83],[260.47,95.56],
+[191.78,153.28],[169.66,109.48],[160.45,124.94],[228.83,143.43],[164.17,117.18],[250.46,101.51],
+[229.34,89.04],[182.75,179.74],[199.01,157.36],[210.99,165.98],[259.28,141.18],[184.83,186.08],
+[127.73,136.77],[179.94,207.88],[197.97,174.17],[194.29,161.99],[149.59,122.17],[172.56,186.54],
+[199.6,110.81],[218.2,183.53],[234.77,122.58],[217.85,171.69],[215.23,202.94],[192.96,152.57],
+[193.47,185.51],[184.91,187.44],[228.88,120.09],[168.13,118.99],[239.18,203.93],[220.39,139.34],
+[269.45,130.11],[231.42,177.13],[190.12,94.41],[144.68,144.36],[172.95,112.07],[212.59,174.95],
+[261.63,97.67],[205.88,143.66],[188.59,180.61],[206.65,162.14],[176.5,209.89],[177.84,152.94],
+[235.73,188.78],[182.89,156.04],[235.13,121.93],[208.73,133.71],[222.64,138.77],[248.17,135.31],
+[198.84,129.29],[161.7,163.74],[214.61,219.44],[142.82,117.59],[181.14,216.14],[187.72,84.66],
+[176.49,147.41],[236.27,135.21],[198.59,188.53],[225.83,149.35],[209.93,73.95],[163.75,107.09],
+[162.81,121.38],[159.8,103.15],[222.55,105.83],[184.75,66.89],[163.1,149.05],[184.42,182.37],
+[123.05,130.17],[171.94,137.6],[204.73,151.5],[202.59,206.12],[202.76,178.06],[203.65,176.83],
+[235.06,147.89],[155,175.31],[203.3,123.39],[229.45,160.64],[224.04,170.1],[154.19,131.87],
+[223.57,134.34],[159.57,149.53],[228.48,157.46],[164.57,131.26],[215.24,151.27],[191.61,111.47],
+[223.73,173.79],[262.33,163.59],[229.92,170.1],[214.08,132.14],[143.33,169.82],[169.89,116.7],
+[210.34,129.01],[193.91,161.41],[164.44,121.5],[204.19,131.03],[184.89,149.56],[172.21,141.31],
+[206.08,121.63],[198.98,149.6],[195.25,116.13],[185.69,139.54],[149.93,100.04],[144.44,139.11],
+[226.48,170.49],[170.9,109.76],[178.22,170.26],[173.02,125.02],[263.47,141.53],[120.35,167.78],
+[204.84,106.45],[171.04,113.47],[216.83,111.61],[209.1,137.13],[166.99,148.46],[189.59,174.2],
+[185.81,213.39],[213.86,108.33],[231.48,129.58],[228.89,163.11],[248.04,133.74],[165.32,110.78],
+[169.66,161.79]
+];
+
+// ================= State =================
+const cx0 = RAW_POINTS.reduce((s,p)=>s+p[0],0) / RAW_POINTS.length;
+const cy0 = RAW_POINTS.reduce((s,p)=>s+p[1],0) / RAW_POINTS.length;
+
+const hullFull = convexHull(RAW_POINTS);
+const hullKeySet = new Set(hullFull.map(p => p[0].toFixed(4)+'_'+p[1].toFixed(4)));
+const interiorPoints = RAW_POINTS.filter(p => !hullKeySet.has(p[0].toFixed(4)+'_'+p[1].toFixed(4)));
+interiorPoints.sort((a,b) => Math.hypot(a[0]-cx0,a[1]-cy0) - Math.hypot(b[0]-cx0,b[1]-cy0));
+
+const BOUNDS = [55, 335, 5, 300];
+
+function keyOf(p){ return p[0].toFixed(4)+'_'+p[1].toFixed(4); }
+
+function computeState(sliderVal) {
+  const SLIDER_MAX = 70;
+  const t = sliderVal / SLIDER_MAX; // 0..1, raw slider position
+  // Warp the removal curve so central points start disappearing almost
+  // immediately when the slider moves, instead of requiring a large drag
+  // before anything visibly changes. Still capped at 70% of interior points.
+  const removalFrac = 0.5 * Math.pow(t, 0.45);
+
+  const nRemove = Math.floor(removalFrac * interiorPoints.length);
+  const removedSet = new Set(interiorPoints.slice(0, nRemove).map(keyOf));
+  const retained = RAW_POINTS.filter(p => !removedSet.has(keyOf(p)));
+  const removed = RAW_POINTS.filter(p => removedSet.has(keyOf(p)));
+
+  const hull = convexHull(retained);
+  const hullArea = polygonArea(hull);
+
+  // Alpha percentile starts at 1.0 (== convex hull) when no points are removed,
+  // and decays gently toward 0.85 as points are removed — this keeps the alpha
+  // shape's outer outline close to the hull throughout the removal range instead
+  // of shrinking dramatically, while still showing some visible sensitivity.
+  const alphaPercentile = Math.max(0.85, 1 - 0.2 * removalFrac);
+  const as = alphaShapeTriangles(retained, alphaPercentile);
+
+  const hv = gridHypervolume(retained, BOUNDS, 0.95, 7, 22);
+
+  return { retained, removed, hull, hullArea, alpha: as, hyper: hv, removalFrac };
+}
+
+// ================= Rendering =================
+const svgNS = "http://www.w3.org/2000/svg";
+function el(tag, attrs) {
+  const e = document.createElementNS(svgNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+function renderPoints(svg, retained, removed, r) {
+  const g = el('g', {});
+  for (const p of removed) {
+    g.appendChild(el('circle', { cx: p[0], cy: p[1], r: r, fill: '#ccc' }));
+  }
+  for (const p of retained) {
+    g.appendChild(el('circle', { cx: p[0], cy: p[1], r: r, fill: '#333' }));
+  }
+  svg.appendChild(g);
+}
+
+function pointsToPath(poly) {
+  if (poly.length === 0) return '';
+  let d = 'M' + poly[0][0] + ',' + poly[0][1];
+  for (let i = 1; i < poly.length; i++) d += 'L' + poly[i][0] + ',' + poly[i][1];
+  d += 'Z';
+  return d;
+}
+
+function trianglesToPath(tris) {
+  let d = '';
+  for (const t of tris) {
+    d += 'M' + t[0][0] + ',' + t[0][1] + 'L' + t[1][0] + ',' + t[1][1] + 'L' + t[2][0] + ',' + t[2][1] + 'Z';
+  }
+  return d;
+}
+
+function cellsToRects(cellsOn, cell, minX, minY) {
+  return cellsOn.map(f => {
+    return { x: minX + f.c*cell, y: minY + f.r*cell, w: cell, h: cell };
+  });
+}
+
+function formatArea(a) {
+  return Math.round(a).toLocaleString();
+}
+
+const svgHull = document.getElementById('viz-hull');
+const svgAlpha = document.getElementById('viz-alpha');
+const svgHyper = document.getElementById('viz-hyper');
+const removalDisplay = document.getElementById('removal-display');
+const hullAreaEl = document.getElementById('hull-area');
+const alphaAreaEl = document.getElementById('alpha-area');
+const hyperAreaEl = document.getElementById('hyper-area');
+const slider = document.getElementById('master-slider');
+
+function render(sliderVal) {
+  const s = computeState(sliderVal);
+
+  // --- Convex hull panel ---
+  svgHull.innerHTML = '';
+  svgHull.appendChild(el('path', {
+    d: pointsToPath(s.hull), fill: 'rgba(46, 204, 113, 0.2)',
+    stroke: '#2ecc71', 'stroke-width': 2
+  }));
+  renderPoints(svgHull, s.retained, s.removed, 2.2);
+
+  // --- Alpha shape panel ---
+  svgAlpha.innerHTML = '';
+  svgAlpha.appendChild(el('path', {
+    d: trianglesToPath(s.alpha.triangles), fill: 'rgba(52, 152, 219, 0.4)',
+    stroke: '#3498db', 'stroke-width': 1
+  }));
+  renderPoints(svgAlpha, s.retained, s.removed, 2.2);
+
+  // --- Hypervolume panel ---
+  svgHyper.innerHTML = '';
+  const rects = cellsToRects(s.hyper.cellsOn, s.hyper.cell, s.hyper.minX, s.hyper.minY);
+  const gRect = el('g', {});
+  for (const r of rects) {
+    gRect.appendChild(el('rect', {
+      x: r.x, y: r.y, width: r.w, height: r.h,
+      fill: 'rgba(155, 89, 182, 0.45)'
+    }));
+  }
+  svgHyper.appendChild(gRect);
+  renderPoints(svgHyper, s.retained, s.removed, 2.2);
+
+  // --- Metrics ---
+  removalDisplay.textContent = Math.round(s.removalFrac*100);
+  hullAreaEl.textContent = formatArea(s.hullArea);
+  alphaAreaEl.textContent = formatArea(s.alpha.area);
+  hyperAreaEl.textContent = formatArea(s.hyper.area);
+}
+
+slider.addEventListener('input', function() {
+  render(Number(slider.value));
+});
+
+render(0);
+
+})();
+</script>
+</body>
+</html>
