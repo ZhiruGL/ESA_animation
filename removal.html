@@ -17,7 +17,7 @@
     box-shadow: 0 4px 20px rgba(0,0,0,0.05);
   }
   .header {
-    margin-bottom: 14px; font-weight: bold; font-size: 1.15em; color: #333;
+    margin-bottom: 14px; font-weight: bold; font-size: 1.6em; color: #333;
     text-align: center;
   }
   .header span#removal-display { color: #e74c3c; }
@@ -28,7 +28,7 @@
     flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0;
   }
   .panel-title {
-    font-size: 0.75em; color: #666; margin-bottom: 5px; font-weight: bold;
+    font-size: 1.05em; color: #666; margin-bottom: 8px; font-weight: bold;
     text-transform: uppercase; letter-spacing: 0.03em;
   }
   .panel-canvas {
@@ -36,10 +36,6 @@
     background: #fafafa; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;
   }
   .panel-canvas svg { width: 100%; height: 100%; display: block; }
-  .metric {
-    margin-top: 6px; font-size: 0.78em; color: #444; font-variant-numeric: tabular-nums;
-  }
-  .metric b { color: #111; }
   .slider-row {
     width: 100%; display: flex; align-items: center; gap: 12px; margin-top: 18px;
   }
@@ -47,7 +43,7 @@
     flex: 1; height: 12px; cursor: pointer; accent-color: #e74c3c;
   }
   .legend {
-    display: flex; gap: 18px; margin-top: 10px; font-size: 0.72em; color: #666;
+    display: flex; gap: 18px; margin-top: 10px; font-size: 0.95em; color: #666;
   }
   .legend-item { display: flex; align-items: center; gap: 5px; }
   .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
@@ -65,7 +61,6 @@
       <div class="panel-canvas">
         <svg id="viz-hull" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet"></svg>
       </div>
-      <div class="metric">Functional Richness: <b id="hull-area">–</b></div>
     </div>
 
     <div class="panel">
@@ -73,7 +68,6 @@
       <div class="panel-canvas">
         <svg id="viz-alpha" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet"></svg>
       </div>
-      <div class="metric">Functional Richness: <b id="alpha-area">–</b></div>
     </div>
 
     <div class="panel">
@@ -81,7 +75,6 @@
       <div class="panel-canvas">
         <svg id="viz-hyper" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet"></svg>
       </div>
-      <div class="metric">Functional Richness: <b id="hyper-area">–</b></div>
     </div>
   </div>
 
@@ -354,17 +347,10 @@ function cellsToRects(cellsOn, cell, minX, minY) {
   });
 }
 
-function formatArea(a) {
-  return Math.round(a).toLocaleString();
-}
-
 const svgHull = document.getElementById('viz-hull');
 const svgAlpha = document.getElementById('viz-alpha');
 const svgHyper = document.getElementById('viz-hyper');
 const removalDisplay = document.getElementById('removal-display');
-const hullAreaEl = document.getElementById('hull-area');
-const alphaAreaEl = document.getElementById('alpha-area');
-const hyperAreaEl = document.getElementById('hyper-area');
 const slider = document.getElementById('master-slider');
 
 function render(sliderVal) {
@@ -399,11 +385,8 @@ function render(sliderVal) {
   svgHyper.appendChild(gRect);
   renderPoints(svgHyper, s.retained, s.removed, 2.2);
 
-  // --- Metrics ---
+  // --- Header ---
   removalDisplay.textContent = Math.round(s.removalFrac*100);
-  hullAreaEl.textContent = formatArea(s.hullArea);
-  alphaAreaEl.textContent = formatArea(s.alpha.area);
-  hyperAreaEl.textContent = formatArea(s.hyper.area);
 }
 
 slider.addEventListener('input', function() {
