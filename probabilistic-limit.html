@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Probabilistic Metric — Parameter Explorer</title>
+<style>
+  :root{
+    --bg: #fdfcfa;
+    --ink: #1c1c1c;
+    --muted: #78716a;
+    --hairline: #e4ded2;
+    --kde: #5b2d6d;
+    --track: #ece7db;
+  }
+  *{ box-sizing: border-box; }
+  html,body{
+    margin:0; padding:0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .stage{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding: 10px 16px 20px;
+    gap: 12px;
+  }
+  .canvas-wrap{
+    position: relative;
+    background: #ffffff;
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  canvas{
+    display:block;
+    border-radius: 3px;
+  }
+  .panel{
+    width: 460px;
+    display:flex;
+    flex-direction:column;
+    gap: 10px;
+  }
+  .row{
+    display:flex;
+    align-items:center;
+    gap: 10px;
+  }
+  .row label{
+    font-size: 11.5px;
+    color: var(--muted);
+    width: 118px;
+    flex: none;
+    letter-spacing: 0.01em;
+  }
+  .row input[type="range"]{
+    flex: 1;
+    accent-color: var(--kde);
+    height: 4px;
+  }
+  .row .val{
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-size: 11.5px;
+    color: var(--ink);
+    width: 48px;
+    text-align: right;
+    flex: none;
+  }
+  .rule-row{
+    justify-content: flex-end;
+    border-bottom: 1px solid var(--hairline);
+    padding-bottom: 10px;
+  }
+  .control{
+    display:flex;
+    align-items:center;
+    gap: 8px;
+    user-select:none;
+  }
+  .control-label{
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.01em;
+    transition: color 200ms ease;
+  }
+  .control-label.active{ color: var(--ink); font-weight: 600; }
+  .switch{
+    position: relative;
+    width: 46px;
+    height: 20px;
+    background: var(--track);
+    border-radius: 10px;
+    border: 1px solid var(--hairline);
+    cursor: pointer;
+    flex: none;
+  }
+  .knob{
+    position:absolute;
+    top: 2px; left: 2px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--ink);
+    transition: transform 220ms cubic-bezier(.4,0,.2,1);
+  }
+  .switch.on .knob{
+    transform: translateX(26px);
+    background: var(--kde);
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="canvas-wrap">
+    <canvas id="cnv"></canvas>
+  </div>
+
+  <div class="panel">
+    <div class="row rule-row">
+      <div class="control">
+        <span class="control-label active" id="ruleLabelLeft">Scott's rule</span>
+        <div class="switch" id="ruleSwitch"><div class="knob"></div></div>
+        <span class="control-label" id="ruleLabelRight">Silverman's rule</span>
+      </div>
+    </div>
+    <div class="row">
+      <label for="bwx">Bandwidth · Trait 1</label>
+      <input type="range" id="bwx" min="0.3" max="3" step="0.05" value="1">
+      <span class="val" id="bwxVal">1.00×</span>
+    </div>
+    <div class="row">
+      <label for="bwy">Bandwidth · Trait 2</label>
+      <input type="range" id="bwy" min="0.3" max="3" step="0.05" value="1">
+      <span class="val" id="bwyVal">1.00×</span>
+    </div>
+    <div class="row">
+      <label for="mass">Mass threshold</label>
+      <input type="range" id="mass" min="50" max="99" step="1" value="90">
+      <span class="val" id="massVal">90%</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ---------- point cloud (from alpha-shape dataset; y flipped so up = larger trait value) ----------
+  const RAW_POINTS = [
+[77.57,51.45],[66.06,40.17],[83.12,70.97],[86.51,31.58],[81.34,12.37],[97.35,68.04],
+[109.56,59.99],[104.43,68.39],[95.65,36.33],[121.6,43.45],[76.72,47.4],[96.39,59.3],
+[84.5,39.11],[86.01,59.28],[85.98,57.92],[117.13,36.55],[100.4,49.42],[89.16,59.64],
+[96.49,81.73],[102.05,40.2],[74.23,52.48],[70.7,52.43],[91.1,38.83],[106.35,50.72],
+[97.46,27.04],[95.57,56.33],[86.65,35.78],[76.05,60.13],[99.49,60.12],[102.05,50.19],
+[86.87,63.81],[91.45,41.97],[112.86,52.19],[86.75,73.86],[112.57,68.7],[101.8,51.31],
+[293.76,48.3],[300.92,52.15],[298.18,42.9],[299.92,46.33],[312.12,46.7],[323.99,74.09],
+[313.58,43.55],[319.14,47.2],[326.93,62.93],[304.16,36.29],[312.2,37.88],[307.7,58.95],
+[319.45,69.58],[303.26,64.6],[304.39,59.67],[302.2,66.91],[303.35,51.72],[320.86,38.21],
+[341.25,53.21],[312.84,50.76],[306.31,79.67],[290.96,52.1],[311.92,43.22],[296.01,39.53],
+[301.63,66.97],[308.34,41.02],[298.81,81.02],[333.81,75.65],[293.12,67.17],[288.59,48.48],
+[321.53,55],[313.4,59.81],[316.53,79.19],[307.52,49.31],[323.83,26.4],[305.92,47.35],
+[244.17,186.03],[171,125.72],[131.14,181.78],[204.94,124.69],[243.43,159.2],[234.01,148.7],
+[249.12,188.11],[187.94,131.01],[256.01,223.75],[154.19,165.06],[231.82,227.71],[238.1,211.28],
+[254.1,160.14],[151.18,203.66],[151.01,169.51],[235.25,215.92],[131.23,164.79],[222.01,131.88],
+[235.87,221.99],[260.84,180.48],[209.31,150.99],[216.15,262.38],[137.46,161.85],[197.98,266.71],
+[224.38,262.24],[150.74,206.78],[243.23,188.83],[133.75,226.83],[151.8,259],[261.45,227.44],
+[163.76,176.6],[146.08,169.13],[170.91,230.19],[120.41,214.34],[200.07,143.73],[135.86,202.39],
+[172.63,144.61],[277.16,190.36],[238.21,226.3],[213.39,136.97],[195.7,268.7],[200.84,246.26],
+[217.3,147.17],[157.17,175.06],[170.29,260.23],[258.02,225.77],[144.96,245.92],[179.49,137.31],
+[276.39,201.37],[162.87,197.27],[227.38,148.46],[174.94,170.02],[146.84,232.23],[187.34,264.58],
+[173.56,152.28],[125.12,193.52],[123.25,194.99],[199.84,277.3],[151.84,238.19],[143.56,191.47],
+[162.11,138.94],[157.23,155.46],[223.93,248.25],[225.1,218.4],[245,247.98],[165.58,245.06],
+[174.43,237.71],[175.98,160.49],[227.68,252.56],[257.41,244.28],[174.88,146.47],[241.03,173.71],
+[160.61,239.32],[155.19,171.76],[251.96,203.22],[228.09,223.13],[253.15,198.95],[159.36,172.79],
+[240.3,189.36],[249.33,159.43],[142.65,223.57],[159.92,235.21],[216.44,240.17],[199.41,274.84],
+[220.3,173.94],[232.46,185.46],[223.31,129.83],[252.43,225.44],[247.99,209.29],[274,175.28],
+[171.76,167.59],[227.13,175.04],[163.01,222.39],[147.03,156.78],[185.92,141.56],[245.92,135.66],
+[151.65,237.78],[256.24,157.59],[217.28,146.74],[234.8,187.12],[198.42,255.87],[250.03,209.6],
+[167.74,251.25],[192.54,122.77],[173.27,271.82],[220.79,253.65],[258.23,161.33],[248.94,217.48],
+[199.2,244.32],[242.94,145.41],[246.38,216.44],[162.68,167.36],[157.08,157.32],[261.54,237.23],
+[218.79,162.67],[144.7,188.88],[142.75,187.29],[251.25,200.05],[237.85,170.69],[156.54,174.5],
+[141.21,204.77],[244.59,250.44],[207.03,141.55],[125.84,207.4],[277.83,190.85],[254.02,227.94],
+[189.95,244.36],[237.5,152.11],[240.86,221.79],[187.07,125.91],[151.33,194.74],[273.11,199.77],
+[143.16,180.39],[179.87,162.2],[217.29,238.76],[194.64,120.36],[178.82,128.12],[197.54,249.53],
+[231.22,143.21],[217.37,245.6],[235.71,205.6],[229.41,270.61],[257.32,150.66],[193.59,251.77],
+[255.66,225.92],[157.87,187.45],[146.6,237.45],[203.29,140.53],[249.63,169.7],[239.73,174.32],
+[161.87,249.19],[169.14,233.04],[167.93,238.7],[223.26,142.39],[217.17,236.75],[138.19,167.1],
+[182.44,155.56],[229.36,260.53],[139.17,181.65],[256.79,189.35],[213.54,274.3],[247.86,142.36],
+[169.27,257.76],[215.86,248.45],[149.1,162.03],[243.32,221.66],[187.21,238.45],[121.17,216.42],
+[259.78,234.84],[186.67,132.61],[225.19,240.09],[243.68,188.18],[244.54,238.89],[140.01,152.97],
+[175.38,160.96],[148.49,253.16],[210.41,127.96],[129.45,193.68],[167.79,153.16],[142.73,196.92],
+[233.48,251.95],[220.95,248.34],[237.94,248.13],[142.64,221.19],[254.5,263.48],[146.56,186.63],
+[139.4,227.28],[205.17,125.28],[228.73,259.86],[133.43,183.3],[225.87,263.81],[267.1,245.76],
+[245.61,190.49],[128.17,186.23],[214.22,162.86],[173.17,124.73],[219.9,160.94],[234.1,239.18],
+[183.01,237.58],[205.96,136.5],[201.78,163.17],[228.52,185.07],[230.03,248.77],[265.83,153.17],
+[267.46,175.27],[189.79,122.23],[186.76,261.25],[146.52,151.06],[169.05,152.06],[175.8,238.33],
+[239.34,181.45],[156.4,182.79],[162.8,164.64],[243.69,218.56],[170.18,148.96],[238.82,243.21],
+[141.19,231.95],[191.3,132.04],[207.72,131.19],[169.65,163.17],[254.48,232.32],[225.45,157.46],
+[247.84,219.87],[224.51,132.86],[159.95,164.62],[131.75,209.83],[151.69,146.88],[249.3,180.51],
+[166.74,253.02],[222.52,255.3],[131.14,237.95],[128.67,196.96],[127.36,186.45],[158.24,233.04],
+[264.54,217.12],[170.19,225.11],[269.45,221.28],[237.49,274.14],[207.27,273.29],[272.03,173.2]
+  ];
+  const points = RAW_POINTS.map(p => ({ x: p[0], y: -p[1] }));
+  const n = points.length;
+
+  // ---------- baseline bandwidths: Scott's rule vs Silverman's rule ----------
+  function sd(vals){
+    const m = vals.reduce((a,b)=>a+b,0)/vals.length;
+    return Math.sqrt(vals.reduce((a,b)=>a+(b-m)*(b-m),0)/vals.length);
+  }
+  function quartile(sortedVals, q){
+    const pos = (sortedVals.length-1)*q;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    return sortedVals[base+1] !== undefined
+      ? sortedVals[base] + rest*(sortedVals[base+1]-sortedVals[base])
+      : sortedVals[base];
+  }
+  function iqr(vals){
+    const s = vals.slice().sort((a,b)=>a-b);
+    return quartile(s, 0.75) - quartile(s, 0.25);
+  }
+
+  const xsAll = points.map(p=>p.x), ysAll = points.map(p=>p.y);
+
+  // Scott's rule: sd * n^(-1/(d+4)), d=2
+  const scottFactor = Math.pow(n, -1/6);
+  const baseBwX_scott = sd(xsAll) * scottFactor;
+  const baseBwY_scott = sd(ysAll) * scottFactor;
+
+  // Silverman's rule: 0.9 * min(sd, IQR/1.34) * n^(-1/5)
+  const silvermanFactor = Math.pow(n, -1/5);
+  const baseBwX_silverman = 0.9 * Math.min(sd(xsAll), iqr(xsAll)/1.34) * silvermanFactor;
+  const baseBwY_silverman = 0.9 * Math.min(sd(ysAll), iqr(ysAll)/1.34) * silvermanFactor;
+
+  let bandwidthRule = 'scott';
+
+  // ---------- fixed plotting range (independent of bandwidth) ----------
+  const rangeX = Math.max(...xsAll) - Math.min(...xsAll);
+  const rangeY = Math.max(...ysAll) - Math.min(...ysAll);
+  const pad = Math.max(rangeX, rangeY) * 0.25;
+  const minX = Math.min(...xsAll)-pad, maxX = Math.max(...xsAll)+pad;
+  const minY = Math.min(...ysAll)-pad, maxY = Math.max(...ysAll)+pad;
+
+  // ---------- "nice" axis ticks ----------
+  function niceTicks(min, max, target){
+    const range = max - min;
+    const rawStep = range / target;
+    const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const norm = rawStep / mag;
+    let step;
+    if(norm < 1.5) step = 1*mag;
+    else if(norm < 3) step = 2*mag;
+    else if(norm < 7) step = 5*mag;
+    else step = 10*mag;
+    const start = Math.ceil(min/step)*step;
+    const ticks = [];
+    for(let v = start; v <= max + 1e-9; v += step) ticks.push(Math.round(v*1000)/1000);
+    return ticks;
+  }
+  const xTicks = niceTicks(minX, maxX, 6);
+  const yTicks = niceTicks(minY, maxY, 6);
+
+  // ---------- heat palette (paper -> gold -> coral -> rose -> deep violet) ----------
+  const stops = [
+    [253,252,250],
+    [255,214,138],
+    [255,140,105],
+    [214, 64,110],
+    [ 91, 33,109]
+  ];
+  function heatColor(t){
+    t = Math.max(0, Math.min(1, t));
+    const scaled = t * (stops.length-1);
+    const idx = Math.min(stops.length-2, Math.floor(scaled));
+    const f = scaled - idx;
+    const a = stops[idx], b = stops[idx+1];
+    const r = Math.round(a[0]+(b[0]-a[0])*f);
+    const g = Math.round(a[1]+(b[1]-a[1])*f);
+    const bl = Math.round(a[2]+(b[2]-a[2])*f);
+    return `rgb(${r},${g},${bl})`;
+  }
+
+  // ---------- canvas setup ----------
+  const canvas = document.getElementById('cnv');
+  const ctx = canvas.getContext('2d');
+  const CSS_W = 460, CSS_H = 400;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = CSS_W*dpr; canvas.height = CSS_H*dpr;
+  canvas.style.width = CSS_W+'px'; canvas.style.height = CSS_H+'px';
+  ctx.scale(dpr,dpr);
+
+  const ML = 36, MT = 32, MB = 32, MR = 84;
+  function toPx(x,y){
+    const px = ML + (x-minX)/(maxX-minX) * (CSS_W-ML-MR);
+    const py = CSS_H - MB - (y-minY)/(maxY-minY) * (CSS_H-MT-MB);
+    return {x:px,y:py};
+  }
+
+  function drawAxes(){
+    ctx.save();
+    ctx.strokeStyle = '#c9c2b2';
+    ctx.fillStyle = '#78716a';
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ML, MT, CSS_W-ML-MR, CSS_H-MT-MB);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    xTicks.forEach(v=>{
+      const p = toPx(v, minY);
+      ctx.beginPath();
+      ctx.moveTo(p.x, CSS_H-MB);
+      ctx.lineTo(p.x, CSS_H-MB+5);
+      ctx.stroke();
+      ctx.fillText(v, p.x, CSS_H-MB+8);
+    });
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    yTicks.forEach(v=>{
+      const p = toPx(minX, v);
+      ctx.beginPath();
+      ctx.moveTo(ML-5, p.y);
+      ctx.lineTo(ML, p.y);
+      ctx.stroke();
+      ctx.fillText(v, ML-8, p.y);
+    });
+    ctx.restore();
+  }
+
+  function drawLegend(maxDens, threshold){
+    const barW = 11;
+    const barX = CSS_W - MR + 10;
+    const barY = MT;
+    const barH = CSS_H - MT - MB;
+    ctx.save();
+    const grad = ctx.createLinearGradient(0, barY, 0, barY+barH);
+    const steps = 12;
+    for(let i=0;i<=steps;i++){
+      const t = i/steps;
+      grad.addColorStop(1-t, heatColor(t));
+    }
+    ctx.fillStyle = grad;
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.strokeStyle = '#c9c2b2';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barW, barH);
+
+    const threshT = maxDens > 0 ? threshold / maxDens : 0;
+    const threshY = barY + barH * (1 - threshT);
+    ctx.strokeStyle = '#1e3a5f';
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([4,3]);
+    ctx.beginPath();
+    ctx.moveTo(barX-3, threshY);
+    ctx.lineTo(barX+barW+3, threshY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = '#78716a';
+    ctx.font = '8.5px -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('High', barX+barW+4, barY-2);
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('Low', barX+barW+4, barY+barH+2);
+    ctx.textBaseline = 'middle';
+    ctx.fillText('cutoff', barX+barW+4, threshY);
+
+    ctx.fillStyle = '#1c1c1c';
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('Density', barX+barW/2, barY-6);
+    ctx.restore();
+  }
+
+  // ---------- recompute + redraw whenever a slider changes ----------
+  const GRID = 70;
+  const gx = new Array(GRID), gy = new Array(GRID);
+  for(let i=0;i<GRID;i++) gx[i] = minX + (maxX-minX)*i/(GRID-1);
+  for(let j=0;j<GRID;j++) gy[j] = minY + (maxY-minY)*j/(GRID-1);
+  const cellArea = ((maxX-minX)/(GRID-1)) * ((maxY-minY)/(GRID-1));
+
+  const off = document.createElement('canvas');
+  off.width = GRID; off.height = GRID;
+  const offCtx = off.getContext('2d');
+
+  function marchingSquares(dens, threshold){
+    const segs = [];
+    for(let j=0;j<GRID-1;j++){
+      for(let i=0;i<GRID-1;i++){
+        const p0 = {x:gx[i],   y:gy[j],   v:dens[j][i]};
+        const p1 = {x:gx[i+1], y:gy[j],   v:dens[j][i+1]};
+        const p2 = {x:gx[i+1], y:gy[j+1], v:dens[j+1][i+1]};
+        const p3 = {x:gx[i],   y:gy[j+1], v:dens[j+1][i]};
+        const edges = [[p0,p1],[p1,p2],[p2,p3],[p3,p0]];
+        const cross = [];
+        for(const [a,b] of edges){
+          const above_a = a.v >= threshold, above_b = b.v >= threshold;
+          if(above_a !== above_b){
+            const t = (threshold - a.v) / (b.v - a.v);
+            cross.push({ x: a.x + t*(b.x-a.x), y: a.y + t*(b.y-a.y) });
+          }
+        }
+        if(cross.length === 2) segs.push([cross[0], cross[1]]);
+        else if(cross.length === 4){
+          segs.push([cross[0], cross[1]]);
+          segs.push([cross[2], cross[3]]);
+        }
+      }
+    }
+    return segs;
+  }
+
+  const bwxSlider = document.getElementById('bwx');
+  const bwySlider = document.getElementById('bwy');
+  const massSlider = document.getElementById('mass');
+  const bwxVal = document.getElementById('bwxVal');
+  const bwyVal = document.getElementById('bwyVal');
+  const massVal = document.getElementById('massVal');
+
+  let raf = null;
+  function scheduleUpdate(){
+    if(raf) return;
+    raf = requestAnimationFrame(()=>{ raf = null; update(); });
+  }
+
+  function update(){
+    const bwMultX = Number(bwxSlider.value);
+    const bwMultY = Number(bwySlider.value);
+    const massPct = Number(massSlider.value) / 100;
+
+    bwxVal.textContent = bwMultX.toFixed(2)+'×';
+    bwyVal.textContent = bwMultY.toFixed(2)+'×';
+    massVal.textContent = Math.round(massPct*100)+'%';
+
+    const baseBwX = bandwidthRule === 'silverman' ? baseBwX_silverman : baseBwX_scott;
+    const baseBwY = bandwidthRule === 'silverman' ? baseBwY_silverman : baseBwY_scott;
+    const bwX = baseBwX * bwMultX;
+    const bwY = baseBwY * bwMultY;
+
+    function kde(x,y){
+      let s = 0;
+      for(const p of points){
+        const zx = (x-p.x)/bwX, zy = (y-p.y)/bwY;
+        s += Math.exp(-0.5*(zx*zx+zy*zy));
+      }
+      return (s/n) / (2*Math.PI*bwX*bwY);
+    }
+
+    const dens = new Array(GRID);
+    let maxDens = 0;
+    for(let j=0;j<GRID;j++){
+      dens[j] = new Array(GRID);
+      for(let i=0;i<GRID;i++){
+        const d = kde(gx[i], gy[j]);
+        dens[j][i] = d;
+        if(d > maxDens) maxDens = d;
+      }
+    }
+
+    const flat = [];
+    for(let j=0;j<GRID;j++) for(let i=0;i<GRID;i++) flat.push(dens[j][i]);
+    const total = flat.reduce((a,b)=>a+b,0);
+    const sorted = flat.slice().sort((a,b)=>b-a);
+    let cum = 0, threshold = 0;
+    for(const v of sorted){
+      cum += v;
+      if(cum/total >= massPct){ threshold = v; break; }
+    }
+    let cellsAbove = 0;
+    for(const v of flat) if(v >= threshold) cellsAbove++;
+    const hypervolume = cellArea * cellsAbove;
+
+    const imgData = offCtx.createImageData(GRID, GRID);
+    for(let j=0;j<GRID;j++){
+      for(let i=0;i<GRID;i++){
+        const t = dens[j][i] / maxDens;
+        const col = heatColor(t);
+        const [r,g,b] = col.match(/\d+/g).map(Number);
+        const destRow = GRID-1-j;
+        const idx = (destRow*GRID + i) * 4;
+        imgData.data[idx] = r; imgData.data[idx+1] = g; imgData.data[idx+2] = b; imgData.data[idx+3] = 255;
+      }
+    }
+    offCtx.putImageData(imgData, 0, 0);
+
+    const contourSegs = marchingSquares(dens, threshold);
+
+    ctx.clearRect(0,0,CSS_W,CSS_H);
+    const tl = toPx(minX, maxY);
+    const brc = toPx(maxX, minY);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(off, tl.x, tl.y, brc.x-tl.x, brc.y-tl.y);
+
+    ctx.save();
+    ctx.strokeStyle = '#1e3a5f';
+    ctx.lineWidth = 1.6;
+    ctx.setLineDash([5,4]);
+    ctx.beginPath();
+    contourSegs.forEach(seg=>{
+      const a = toPx(seg[0].x, seg[0].y);
+      const b = toPx(seg[1].x, seg[1].y);
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    drawLegend(maxDens, threshold);
+    drawAxes();
+
+    points.forEach(p=>{
+      const px = toPx(p.x, p.y);
+      ctx.beginPath();
+      ctx.arc(px.x, px.y, 3, 0, Math.PI*2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#1c1c1c';
+      ctx.stroke();
+    });
+
+    ctx.fillStyle = '#1c1c1c';
+    ctx.font = '10.5px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Trait 1', (ML + CSS_W-MR)/2, CSS_H-6);
+    ctx.save();
+    ctx.translate(12, CSS_H/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.fillText('Trait 2', 0, 0);
+    ctx.restore();
+  }
+
+  [bwxSlider, bwySlider, massSlider].forEach(s => s.addEventListener('input', scheduleUpdate));
+
+  const ruleSwitch = document.getElementById('ruleSwitch');
+  const ruleLabelLeft = document.getElementById('ruleLabelLeft');
+  const ruleLabelRight = document.getElementById('ruleLabelRight');
+  let ruleOn = false;
+  function setRule(next){
+    ruleOn = next;
+    ruleSwitch.classList.toggle('on', ruleOn);
+    ruleLabelLeft.classList.toggle('active', !ruleOn);
+    ruleLabelRight.classList.toggle('active', ruleOn);
+    bandwidthRule = ruleOn ? 'silverman' : 'scott';
+    scheduleUpdate();
+  }
+  ruleSwitch.addEventListener('click', ()=> setRule(!ruleOn));
+
+  update();
+})();
+</script>
+</body>
+</html>
