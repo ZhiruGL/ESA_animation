@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Alpha Shape — Sensitivity to Central Point Removal</title>
+<style>
+  :root{
+    --bg: #fdfcfa;
+    --ink: #1c1c1c;
+    --muted: #78716a;
+    --hairline: #e4ded2;
+    --accent: #0f766e;
+    --track: #ece7db;
+    --removed: #d8d3c8;
+  }
+  *{ box-sizing: border-box; }
+  html,body{
+    margin:0; padding:0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .stage{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding: 14px 16px 20px;
+    gap: 14px;
+  }
+  .panels{
+    display:flex;
+    flex-direction:row;
+    gap: 16px;
+  }
+  .panel-label{
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+    text-align:center;
+    margin-bottom: 6px;
+  }
+  .canvas-wrap{
+    background: #ffffff;
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  canvas{ display:block; border-radius: 3px; }
+  .legend{
+    display:flex;
+    gap: 18px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .legend-item{ display:flex; align-items:center; gap: 6px; }
+  .swatch{ width: 8px; height: 8px; border-radius: 50%; display:inline-block; }
+  .slider-row{
+    width: 100%;
+    max-width: 580px;
+    display:flex;
+    align-items:center;
+    gap: 12px;
+  }
+  input[type="range"]{
+    flex:1;
+    accent-color: var(--accent);
+    height: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="panels">
+    <div>
+      <div class="panel-label">Point pattern</div>
+      <div class="canvas-wrap"><canvas id="cnvShape"></canvas></div>
+    </div>
+    <div>
+      <div class="panel-label">Functional richness vs. proportion removed</div>
+      <div class="canvas-wrap"><canvas id="cnvLine"></canvas></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><span class="swatch" style="background:var(--ink);"></span>retained point</div>
+    <div class="legend-item"><span class="swatch" style="background:var(--removed);"></span>removed point</div>
+  </div>
+
+  <div class="slider-row">
+    <input type="range" id="slider" min="0" max="70" value="0">
+  </div>
+</div>
+
+<script>
+(function(){
+  // ================= Geometry primitives =================
+  function circumcircle(a,b,c){
+    const ax=a[0], ay=a[1], bx=b[0], by=b[1], cx=c[0], cy=c[1];
+    const d = 2*(ax*(by-cy)+bx*(cy-ay)+cx*(ay-by));
+    if(Math.abs(d) < 1e-10) return null;
+    const ux = ((ax*ax+ay*ay)*(by-cy)+(bx*bx+by*by)*(cy-ay)+(cx*cx+cy*cy)*(ay-by))/d;
+    const uy = ((ax*ax+ay*ay)*(cx-bx)+(bx*bx+by*by)*(ax-cx)+(cx*cx+cy*cy)*(bx-ax))/d;
+    return { x: ux, y: uy, r: Math.hypot(ax-ux, ay-uy) };
+  }
+  function delaunay(points){
+    const xs = points.map(p=>p[0]), ys = points.map(p=>p[1]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const dx = maxX-minX, dy = maxY-minY, dmax = Math.max(dx,dy)*10 + 10;
+    const midX = (minX+maxX)/2, midY = (minY+maxY)/2;
+    const st = [
+      [midX - 2*dmax, midY - dmax],
+      [midX, midY + 2*dmax],
+      [midX + 2*dmax, midY - dmax]
+    ];
+    let triangles = [[st[0], st[1], st[2]]];
+    for(const p of points){
+      const bad = [];
+      for(const t of triangles){
+        const cc = circumcircle(t[0], t[1], t[2]);
+        if(cc && Math.hypot(cc.x-p[0], cc.y-p[1]) < cc.r + 1e-9) bad.push(t);
+      }
+      const poly = [];
+      for(const t of bad){
+        const edges = [[t[0],t[1]],[t[1],t[2]],[t[2],t[0]]];
+        for(const e of edges){
+          let shared = false;
+          for(const t2 of bad){
+            if(t2 === t) continue;
+            const e2s = [[t2[0],t2[1]],[t2[1],t2[2]],[t2[2],t2[0]]];
+            for(const e2 of e2s){
+              if((e[0]===e2[0] && e[1]===e2[1]) || (e[0]===e2[1] && e[1]===e2[0])) shared = true;
+            }
+          }
+          if(!shared) poly.push(e);
+        }
+      }
+      triangles = triangles.filter(t => bad.indexOf(t) === -1);
+      for(const e of poly) triangles.push([e[0], e[1], p]);
+    }
+    return triangles.filter(t => !t.some(v => st.indexOf(v) !== -1));
+  }
+  function triArea(a,b,c){
+    return Math.abs((b[0]-a[0])*(c[1]-a[1]) - (c[0]-a[0])*(b[1]-a[1])) / 2;
+  }
+  function alphaShapeTriangles(points, alphaPercentile){
+    if(points.length < 3) return { triangles: [], area: 0 };
+    const tris = delaunay(points);
+    const withR = tris.map(t => {
+      const cc = circumcircle(t[0], t[1], t[2]);
+      return { t: t, r: cc ? cc.r : Infinity };
+    }).filter(x => isFinite(x.r));
+    const radii = withR.map(x => x.r).sort((a,b)=>a-b);
+    if(radii.length === 0) return { triangles: [], area: 0 };
+    const idx = Math.min(radii.length - 1, Math.floor(alphaPercentile * (radii.length - 1)));
+    const alpha = radii[idx];
+    const kept = withR.filter(x => x.r <= alpha).map(x => x.t);
+    const area = kept.reduce((s,t) => s + triArea(t[0],t[1],t[2]), 0);
+    return { triangles: kept, area: area };
+  }
+  // convex hull is still needed to identify interior points for the removal order
+  function convexHull(points){
+    const pts = points.slice().sort((a,b) => a[0]-b[0] || a[1]-b[1]);
+    const cross = (o,a,b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
+    const lower = [];
+    for(const p of pts){
+      while(lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0) lower.pop();
+      lower.push(p);
+    }
+    const upper = [];
+    for(let i = pts.length - 1; i >= 0; i--){
+      const p = pts[i];
+      while(upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], p) <= 0) upper.pop();
+      upper.push(p);
+    }
+    lower.pop(); upper.pop();
+    return lower.concat(upper);
+  }
+
+  // ================= Data =================
+  const RAW_POINTS = [
+[291.92,155.42],[293.69,171.02],[290.58,173.79],[288.48,186.99],[278.24,203.01],[281.95,210.88],
+[263.84,218.18],[262.94,224.25],[251.13,237.02],[247.27,236.57],[226.82,238.38],[219.71,240.3],
+[213.46,242.32],[205.27,257.09],[191.09,242.61],[182.73,256.95],[168.17,252.37],[161.89,242.48],
+[158.35,232.24],[139.83,231.14],[133.66,226.55],[130.66,213.9],[113.06,204.9],[118.99,191.06],
+[114.48,183.78],[105.9,177.22],[102.04,157.64],[112.12,142.79],[107.47,130.6],[114.68,120.75],
+[117.03,120.08],[114.31,103.58],[115.03,86.2],[120.41,83.65],[139.75,72.74],[146.88,68.85],
+[148.04,53.47],[152.47,47.02],[168.74,41.3],[179.59,44.77],[189.22,42.78],[200,39.72],
+[210.26,45.75],[227.88,45.21],[241.3,46.97],[242.81,55.05],[246.67,67.26],[260.3,73.87],
+[275.88,75.65],[272.14,83.4],[277.11,103.87],[282.47,115.34],[293.25,120.56],[289.68,127.51],
+[295.26,137.9],[211.78,174.13],[211.77,181.19],[187.02,139.38],[220.95,152.01],[166.54,210.97],
+[192,139.04],[246.01,210.17],[233.13,180.49],[189.81,103.26],[182.3,122.98],[191.9,115.44],
+[168.84,120.23],[177.4,153.84],[178.31,186.55],[246.58,157.86],[170.46,173.17],[179.57,194.64],
+[218.76,131.92],[152.38,154.05],[156.34,141.68],[208.85,174.01],[235.34,129.43],[222.92,132.54],
+[210.65,126.51],[228.68,129.67],[190.82,177.9],[194.53,155.81],[188.43,137.83],[260.47,95.56],
+[191.78,153.28],[169.66,109.48],[160.45,124.94],[228.83,143.43],[164.17,117.18],[250.46,101.51],
+[229.34,89.04],[182.75,179.74],[199.01,157.36],[210.99,165.98],[259.28,141.18],[184.83,186.08],
+[127.73,136.77],[179.94,207.88],[197.97,174.17],[194.29,161.99],[149.59,122.17],[172.56,186.54],
+[199.6,110.81],[218.2,183.53],[234.77,122.58],[217.85,171.69],[215.23,202.94],[192.96,152.57],
+[193.47,185.51],[184.91,187.44],[228.88,120.09],[168.13,118.99],[239.18,203.93],[220.39,139.34],
+[269.45,130.11],[231.42,177.13],[190.12,94.41],[144.68,144.36],[172.95,112.07],[212.59,174.95],
+[261.63,97.67],[205.88,143.66],[188.59,180.61],[206.65,162.14],[176.5,209.89],[177.84,152.94],
+[235.73,188.78],[182.89,156.04],[235.13,121.93],[208.73,133.71],[222.64,138.77],[248.17,135.31],
+[198.84,129.29],[161.7,163.74],[214.61,219.44],[142.82,117.59],[181.14,216.14],[187.72,84.66],
+[176.49,147.41],[236.27,135.21],[198.59,188.53],[225.83,149.35],[209.93,73.95],[163.75,107.09],
+[162.81,121.38],[159.8,103.15],[222.55,105.83],[184.75,66.89],[163.1,149.05],[184.42,182.37],
+[123.05,130.17],[171.94,137.6],[204.73,151.5],[202.59,206.12],[202.76,178.06],[203.65,176.83],
+[235.06,147.89],[155,175.31],[203.3,123.39],[229.45,160.64],[224.04,170.1],[154.19,131.87],
+[223.57,134.34],[159.57,149.53],[228.48,157.46],[164.57,131.26],[215.24,151.27],[191.61,111.47],
+[223.73,173.79],[262.33,163.59],[229.92,170.1],[214.08,132.14],[143.33,169.82],[169.89,116.7],
+[210.34,129.01],[193.91,161.41],[164.44,121.5],[204.19,131.03],[184.89,149.56],[172.21,141.31],
+[206.08,121.63],[198.98,149.6],[195.25,116.13],[185.69,139.54],[149.93,100.04],[144.44,139.11],
+[226.48,170.49],[170.9,109.76],[178.22,170.26],[173.02,125.02],[263.47,141.53],[120.35,167.78],
+[204.84,106.45],[171.04,113.47],[216.83,111.61],[209.1,137.13],[166.99,148.46],[189.59,174.2],
+[185.81,213.39],[213.86,108.33],[231.48,129.58],[228.89,163.11],[248.04,133.74],[165.32,110.78],
+[169.66,161.79]
+  ];
+
+  const cx0 = RAW_POINTS.reduce((s,p)=>s+p[0],0) / RAW_POINTS.length;
+  const cy0 = RAW_POINTS.reduce((s,p)=>s+p[1],0) / RAW_POINTS.length;
+  const hullFull = convexHull(RAW_POINTS);
+  const hullKeySet = new Set(hullFull.map(p => p[0].toFixed(4)+'_'+p[1].toFixed(4)));
+  const interiorPoints = RAW_POINTS.filter(p => !hullKeySet.has(p[0].toFixed(4)+'_'+p[1].toFixed(4)));
+  interiorPoints.sort((a,b) => Math.hypot(a[0]-cx0,a[1]-cy0) - Math.hypot(b[0]-cx0,b[1]-cy0));
+  function keyOf(p){ return p[0].toFixed(4)+'_'+p[1].toFixed(4); }
+
+  const SLIDER_MAX = 70;
+  function computeState(sliderVal){
+    const t = sliderVal / SLIDER_MAX;
+    const removalFrac = 0.5 * Math.pow(t, 0.45);
+    const nRemove = Math.floor(removalFrac * interiorPoints.length);
+    const removedSet = new Set(interiorPoints.slice(0, nRemove).map(keyOf));
+    const retained = RAW_POINTS.filter(p => !removedSet.has(keyOf(p)));
+    const removed = RAW_POINTS.filter(p => removedSet.has(keyOf(p)));
+    const alphaPercentile = Math.max(0.85, 1 - 0.2 * removalFrac);
+    const as = alphaShapeTriangles(retained, alphaPercentile);
+    return { retained, removed, triangles: as.triangles, area: as.area, removalFrac };
+  }
+
+  // ---------- precompute the full trajectory (deterministic in sliderVal) ----------
+  const trajectory = [];
+  for(let v = 0; v <= SLIDER_MAX; v++){
+    const s = computeState(v);
+    trajectory.push({ pct: s.removalFrac*100, value: s.area });
+  }
+  const maxPct = Math.max(...trajectory.map(p=>p.pct));
+  const minVal = Math.min(...trajectory.map(p=>p.value));
+  const maxVal = Math.max(...trajectory.map(p=>p.value));
+  const valPad = Math.max((maxVal-minVal)*0.15, maxVal*0.02);
+
+  // ================= Shape panel =================
+  const shapeCanvas = document.getElementById('cnvShape');
+  const shapeCtx = shapeCanvas.getContext('2d');
+  const SHAPE_W = 340, SHAPE_H = 340;
+  const dpr = window.devicePixelRatio || 1;
+  shapeCanvas.width = SHAPE_W*dpr; shapeCanvas.height = SHAPE_H*dpr;
+  shapeCanvas.style.width = SHAPE_W+'px'; shapeCanvas.style.height = SHAPE_H+'px';
+  shapeCtx.scale(dpr,dpr);
+
+  const xsAll = RAW_POINTS.map(p=>p[0]), ysAll = RAW_POINTS.map(p=>p[1]);
+  const sMinX = Math.min(...xsAll)-14, sMaxX = Math.max(...xsAll)+14;
+  const sMinY = Math.min(...ysAll)-14, sMaxY = Math.max(...ysAll)+14;
+  function toShapePx(p){
+    const x = (p[0]-sMinX)/(sMaxX-sMinX) * SHAPE_W;
+    const y = SHAPE_H - (p[1]-sMinY)/(sMaxY-sMinY) * SHAPE_H;
+    return {x,y};
+  }
+
+  function boundaryEdgesOf(tris){
+    function edgeKey(a,b){
+      const ax=a[0].toFixed(3), ay=a[1].toFixed(3), bx=b[0].toFixed(3), by=b[1].toFixed(3);
+      return (ax+','+ay) < (bx+','+by) ? ax+','+ay+'|'+bx+','+by : bx+','+by+'|'+ax+','+ay;
+    }
+    const count = new Map(), coords = new Map();
+    tris.forEach(t=>{
+      [[t[0],t[1]],[t[1],t[2]],[t[2],t[0]]].forEach(([a,b])=>{
+        const k = edgeKey(a,b);
+        count.set(k, (count.get(k)||0)+1);
+        coords.set(k, [a,b]);
+      });
+    });
+    const edges = [];
+    count.forEach((c,k)=>{ if(c===1) edges.push(coords.get(k)); });
+    return edges;
+  }
+
+  function drawShape(s){
+    shapeCtx.clearRect(0,0,SHAPE_W,SHAPE_H);
+    shapeCtx.fillStyle = 'rgba(15,118,110,0.12)';
+    s.triangles.forEach(t=>{
+      shapeCtx.beginPath();
+      t.forEach((v,i)=>{
+        const px = toShapePx(v);
+        if(i===0) shapeCtx.moveTo(px.x, px.y); else shapeCtx.lineTo(px.x, px.y);
+      });
+      shapeCtx.closePath();
+      shapeCtx.fill();
+    });
+    const boundary = boundaryEdgesOf(s.triangles);
+    shapeCtx.lineWidth = 2;
+    shapeCtx.strokeStyle = '#0f766e';
+    shapeCtx.lineJoin = 'round';
+    boundary.forEach(([a,b])=>{
+      const pa = toShapePx(a), pb = toShapePx(b);
+      shapeCtx.beginPath();
+      shapeCtx.moveTo(pa.x, pa.y);
+      shapeCtx.lineTo(pb.x, pb.y);
+      shapeCtx.stroke();
+    });
+
+    s.removed.forEach(p=>{
+      const px = toShapePx(p);
+      shapeCtx.beginPath();
+      shapeCtx.arc(px.x, px.y, 2.6, 0, Math.PI*2);
+      shapeCtx.fillStyle = '#d8d3c8';
+      shapeCtx.fill();
+    });
+    s.retained.forEach(p=>{
+      const px = toShapePx(p);
+      shapeCtx.beginPath();
+      shapeCtx.arc(px.x, px.y, 2.6, 0, Math.PI*2);
+      shapeCtx.fillStyle = '#1c1c1c';
+      shapeCtx.fill();
+    });
+  }
+
+  // ================= Line chart panel =================
+  const lineCanvas = document.getElementById('cnvLine');
+  const lineCtx = lineCanvas.getContext('2d');
+  const LINE_W = 270, LINE_H = 340;
+  lineCanvas.width = LINE_W*dpr; lineCanvas.height = LINE_H*dpr;
+  lineCanvas.style.width = LINE_W+'px'; lineCanvas.style.height = LINE_H+'px';
+  lineCtx.scale(dpr,dpr);
+
+  const LML = 46, LMT = 16, LMB = 34, LMR = 16;
+  function niceTicks(min, max, target){
+    const range = max - min;
+    const rawStep = range / target;
+    const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const norm = rawStep / mag;
+    let step;
+    if(norm < 1.5) step = 1*mag;
+    else if(norm < 3) step = 2*mag;
+    else if(norm < 7) step = 5*mag;
+    else step = 10*mag;
+    const start = Math.ceil(min/step)*step;
+    const ticks = [];
+    for(let v = start; v <= max + 1e-9; v += step) ticks.push(Math.round(v*1000)/1000);
+    return ticks;
+  }
+  const xDomainMax = Math.ceil(maxPct/10)*10;
+  const yDomainMin = Math.max(0, minVal - valPad);
+  const yDomainMax = maxVal + valPad;
+  const xTicks = niceTicks(0, xDomainMax, 5);
+  const yTicks = niceTicks(yDomainMin, yDomainMax, 5);
+
+  function toLinePx(pct, val){
+    const x = LML + (pct/xDomainMax) * (LINE_W-LML-LMR);
+    const y = LINE_H - LMB - ((val-yDomainMin)/(yDomainMax-yDomainMin)) * (LINE_H-LMT-LMB);
+    return {x,y};
+  }
+
+  function drawLineChart(currentSliderVal){
+    lineCtx.clearRect(0,0,LINE_W,LINE_H);
+    lineCtx.save();
+    lineCtx.strokeStyle = '#c9c2b2';
+    lineCtx.fillStyle = '#78716a';
+    lineCtx.font = '10px -apple-system, sans-serif';
+    lineCtx.lineWidth = 1;
+    lineCtx.strokeRect(LML, LMT, LINE_W-LML-LMR, LINE_H-LMT-LMB);
+
+    lineCtx.textAlign = 'center';
+    lineCtx.textBaseline = 'top';
+    xTicks.forEach(v=>{
+      const p = toLinePx(v, yDomainMin);
+      lineCtx.beginPath();
+      lineCtx.moveTo(p.x, LINE_H-LMB);
+      lineCtx.lineTo(p.x, LINE_H-LMB+4);
+      lineCtx.stroke();
+      lineCtx.fillText(v, p.x, LINE_H-LMB+6);
+    });
+    lineCtx.textAlign = 'right';
+    lineCtx.textBaseline = 'middle';
+    yTicks.forEach(v=>{
+      const p = toLinePx(0, v);
+      lineCtx.beginPath();
+      lineCtx.moveTo(LML-4, p.y);
+      lineCtx.lineTo(LML, p.y);
+      lineCtx.stroke();
+      lineCtx.fillText(Math.round(v), LML-6, p.y);
+    });
+    lineCtx.restore();
+
+    // growing line up to current slider position
+    const shown = trajectory.slice(0, currentSliderVal+1);
+    if(shown.length > 1){
+      lineCtx.beginPath();
+      shown.forEach((pt,i)=>{
+        const p = toLinePx(pt.pct, pt.value);
+        if(i===0) lineCtx.moveTo(p.x, p.y); else lineCtx.lineTo(p.x, p.y);
+      });
+      const lastPt = toLinePx(shown[shown.length-1].pct, yDomainMin);
+      lineCtx.lineTo(lastPt.x, lastPt.y);
+      const firstPt = toLinePx(shown[0].pct, yDomainMin);
+      lineCtx.lineTo(firstPt.x, firstPt.y);
+      lineCtx.closePath();
+      lineCtx.fillStyle = 'rgba(15,118,110,0.10)';
+      lineCtx.fill();
+    }
+    if(shown.length > 0){
+      lineCtx.beginPath();
+      shown.forEach((pt,i)=>{
+        const p = toLinePx(pt.pct, pt.value);
+        if(i===0) lineCtx.moveTo(p.x, p.y); else lineCtx.lineTo(p.x, p.y);
+      });
+      lineCtx.lineWidth = 2;
+      lineCtx.strokeStyle = '#0f766e';
+      lineCtx.stroke();
+
+      const last = shown[shown.length-1];
+      const lp = toLinePx(last.pct, last.value);
+      lineCtx.beginPath();
+      lineCtx.arc(lp.x, lp.y, 3.5, 0, Math.PI*2);
+      lineCtx.fillStyle = '#0f766e';
+      lineCtx.fill();
+    }
+
+    // axis titles
+    lineCtx.fillStyle = '#1c1c1c';
+    lineCtx.font = '10.5px -apple-system, sans-serif';
+    lineCtx.textAlign = 'center';
+    lineCtx.textBaseline = 'alphabetic';
+    lineCtx.fillText('Proportion removed (%)', (LML+LINE_W-LMR)/2, LINE_H-6);
+    lineCtx.save();
+    lineCtx.translate(12, (LMT+LINE_H-LMB)/2);
+    lineCtx.rotate(-Math.PI/2);
+    lineCtx.fillText('Functional richness', 0, 0);
+    lineCtx.restore();
+  }
+
+  // ================= wiring =================
+  const slider = document.getElementById('slider');
+  function render(v){
+    const s = computeState(v);
+    drawShape(s);
+    drawLineChart(v);
+  }
+  slider.addEventListener('input', ()=> render(Number(slider.value)));
+  render(0);
+})();
+</script>
+</body>
+</html>
