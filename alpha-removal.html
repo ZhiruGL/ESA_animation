@@ -56,7 +56,7 @@
   .swatch{ width: 8px; height: 8px; border-radius: 50%; display:inline-block; }
   .slider-row{
     width: 100%;
-    max-width: 720px;
+    max-width: 780px;
     display:flex;
     align-items:center;
     gap: 12px;
@@ -251,7 +251,7 @@
   // ================= Shape panel =================
   const shapeCanvas = document.getElementById('cnvShape');
   const shapeCtx = shapeCanvas.getContext('2d');
-  const SHAPE_W = 400, SHAPE_H = 400;
+  const SHAPE_W = 460, SHAPE_H = 460;
   const dpr = window.devicePixelRatio || 1;
   shapeCanvas.width = SHAPE_W*dpr; shapeCanvas.height = SHAPE_H*dpr;
   shapeCanvas.style.width = SHAPE_W+'px'; shapeCanvas.style.height = SHAPE_H+'px';
@@ -327,7 +327,7 @@
   // ================= Line chart panel =================
   const lineCanvas = document.getElementById('cnvLine');
   const lineCtx = lineCanvas.getContext('2d');
-  const LINE_W = 320, LINE_H = 400;
+  const LINE_W = 320, LINE_H = 460;
   lineCanvas.width = LINE_W*dpr; lineCanvas.height = LINE_H*dpr;
   lineCanvas.style.width = LINE_W+'px'; lineCanvas.style.height = LINE_H+'px';
   lineCtx.scale(dpr,dpr);
