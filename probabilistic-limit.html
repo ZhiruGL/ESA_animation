@@ -21,10 +21,11 @@
   }
   .stage{
     display:flex;
-    flex-direction:column;
-    align-items:center;
+    flex-direction:row;
+    align-items:flex-start;
+    justify-content:center;
     padding: 10px 16px 20px;
-    gap: 12px;
+    gap: 20px;
   }
   .canvas-wrap{
     position: relative;
@@ -32,55 +33,46 @@
     border: 1px solid var(--hairline);
     border-radius: 3px;
     box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    flex: none;
   }
   canvas{
     display:block;
     border-radius: 3px;
   }
   .panel{
-    width: 460px;
+    width: 250px;
+    flex: none;
+    display:flex;
+    flex-direction:column;
+    gap: 24px;
+    padding-top: 4px;
+  }
+  .rule-row{
     display:flex;
     flex-direction:column;
     gap: 10px;
+    border-bottom: 1px solid var(--hairline);
+    padding-bottom: 18px;
   }
-  .row{
+  .rule-row label{
+    font-size: 15px;
+    color: var(--muted);
+    letter-spacing: 0.01em;
+  }
+  .control{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    gap: 8px;
+    user-select:none;
+  }
+  .control-row{
     display:flex;
     align-items:center;
     gap: 10px;
   }
-  .row label{
-    font-size: 11.5px;
-    color: var(--muted);
-    width: 118px;
-    flex: none;
-    letter-spacing: 0.01em;
-  }
-  .row input[type="range"]{
-    flex: 1;
-    accent-color: var(--kde);
-    height: 4px;
-  }
-  .row .val{
-    font-family: "SF Mono", "Menlo", "Consolas", monospace;
-    font-size: 11.5px;
-    color: var(--ink);
-    width: 48px;
-    text-align: right;
-    flex: none;
-  }
-  .rule-row{
-    justify-content: flex-end;
-    border-bottom: 1px solid var(--hairline);
-    padding-bottom: 10px;
-  }
-  .control{
-    display:flex;
-    align-items:center;
-    gap: 8px;
-    user-select:none;
-  }
   .control-label{
-    font-size: 11px;
+    font-size: 15px;
     color: var(--muted);
     letter-spacing: 0.01em;
     transition: color 200ms ease;
@@ -88,10 +80,10 @@
   .control-label.active{ color: var(--ink); font-weight: 600; }
   .switch{
     position: relative;
-    width: 46px;
-    height: 20px;
+    width: 56px;
+    height: 24px;
     background: var(--track);
-    border-radius: 10px;
+    border-radius: 12px;
     border: 1px solid var(--hairline);
     cursor: pointer;
     flex: none;
@@ -99,14 +91,56 @@
   .knob{
     position:absolute;
     top: 2px; left: 2px;
-    width: 14px; height: 14px;
+    width: 18px; height: 18px;
     border-radius: 50%;
     background: var(--ink);
     transition: transform 220ms cubic-bezier(.4,0,.2,1);
   }
   .switch.on .knob{
-    transform: translateX(26px);
+    transform: translateX(32px);
     background: var(--kde);
+  }
+
+  /* --- vertical sliders --- */
+  .sliders-row{
+    display:flex;
+    flex-direction:row;
+    justify-content:space-between;
+    gap: 8px;
+  }
+  .slider-col{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap: 14px;
+  }
+  .slider-col label{
+    font-size: 15px;
+    color: var(--muted);
+    letter-spacing: 0.01em;
+    text-align:center;
+    line-height: 1.3;
+  }
+  .slider-vertical-wrap{
+    width: 36px;
+    height: 300px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .slider-vertical-wrap input[type="range"]{
+    width: 300px;
+    height: 36px;
+    margin:0;
+    accent-color: var(--kde);
+    transform: rotate(-90deg);
+    transform-origin: center;
+  }
+  .slider-col .val{
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-size: 15px;
+    color: var(--ink);
+    font-weight: 600;
   }
 </style>
 </head>
@@ -117,27 +151,39 @@
   </div>
 
   <div class="panel">
-    <div class="row rule-row">
+    <div class="rule-row">
+      <label>Bandwidth rule</label>
       <div class="control">
-        <span class="control-label active" id="ruleLabelLeft">Scott's rule</span>
-        <div class="switch" id="ruleSwitch"><div class="knob"></div></div>
-        <span class="control-label" id="ruleLabelRight">Silverman's rule</span>
+        <div class="control-row">
+          <span class="control-label active" id="ruleLabelLeft">Scott's</span>
+          <div class="switch" id="ruleSwitch"><div class="knob"></div></div>
+          <span class="control-label" id="ruleLabelRight">Silverman's</span>
+        </div>
       </div>
     </div>
-    <div class="row">
-      <label for="bwx">Bandwidth · Trait 1</label>
-      <input type="range" id="bwx" min="0.3" max="3" step="0.05" value="1">
-      <span class="val" id="bwxVal">1.00×</span>
-    </div>
-    <div class="row">
-      <label for="bwy">Bandwidth · Trait 2</label>
-      <input type="range" id="bwy" min="0.3" max="3" step="0.05" value="1">
-      <span class="val" id="bwyVal">1.00×</span>
-    </div>
-    <div class="row">
-      <label for="mass">Mass threshold</label>
-      <input type="range" id="mass" min="50" max="99" step="1" value="90">
-      <span class="val" id="massVal">90%</span>
+
+    <div class="sliders-row">
+      <div class="slider-col">
+        <label for="bwx">Bandwidth<br>Trait 1</label>
+        <div class="slider-vertical-wrap">
+          <input type="range" id="bwx" min="0.3" max="3" step="0.05" value="1">
+        </div>
+        <span class="val" id="bwxVal">1.00×</span>
+      </div>
+      <div class="slider-col">
+        <label for="bwy">Bandwidth<br>Trait 2</label>
+        <div class="slider-vertical-wrap">
+          <input type="range" id="bwy" min="0.3" max="3" step="0.05" value="1">
+        </div>
+        <span class="val" id="bwyVal">1.00×</span>
+      </div>
+      <div class="slider-col">
+        <label for="mass">Mass<br>threshold</label>
+        <div class="slider-vertical-wrap">
+          <input type="range" id="mass" min="50" max="99" step="1" value="90">
+        </div>
+        <span class="val" id="massVal">90%</span>
+      </div>
     </div>
   </div>
 </div>
@@ -283,13 +329,13 @@
   // ---------- canvas setup ----------
   const canvas = document.getElementById('cnv');
   const ctx = canvas.getContext('2d');
-  const CSS_W = 460, CSS_H = 400;
+  const CSS_W = 580, CSS_H = 480;
   const dpr = window.devicePixelRatio || 1;
   canvas.width = CSS_W*dpr; canvas.height = CSS_H*dpr;
   canvas.style.width = CSS_W+'px'; canvas.style.height = CSS_H+'px';
   ctx.scale(dpr,dpr);
 
-  const ML = 36, MT = 32, MB = 32, MR = 84;
+  const ML = 50, MT = 42, MB = 42, MR = 110;
   function toPx(x,y){
     const px = ML + (x-minX)/(maxX-minX) * (CSS_W-ML-MR);
     const py = CSS_H - MB - (y-minY)/(maxY-minY) * (CSS_H-MT-MB);
@@ -300,7 +346,7 @@
     ctx.save();
     ctx.strokeStyle = '#c9c2b2';
     ctx.fillStyle = '#78716a';
-    ctx.font = '10px -apple-system, sans-serif';
+    ctx.font = '14px -apple-system, sans-serif';
     ctx.lineWidth = 1;
     ctx.strokeRect(ML, MT, CSS_W-ML-MR, CSS_H-MT-MB);
     ctx.textAlign = 'center';
@@ -327,8 +373,8 @@
   }
 
   function drawLegend(maxDens, threshold){
-    const barW = 11;
-    const barX = CSS_W - MR + 10;
+    const barW = 13;
+    const barX = CSS_W - MR + 14;
     const barY = MT;
     const barH = CSS_H - MT - MB;
     ctx.save();
@@ -356,25 +402,25 @@
     ctx.setLineDash([]);
 
     ctx.fillStyle = '#78716a';
-    ctx.font = '8.5px -apple-system, sans-serif';
+    ctx.font = '12.5px -apple-system, sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText('High', barX+barW+4, barY-2);
+    ctx.fillText('High', barX+barW+5, barY-2);
     ctx.textBaseline = 'bottom';
-    ctx.fillText('Low', barX+barW+4, barY+barH+2);
+    ctx.fillText('Low', barX+barW+5, barY+barH+2);
     ctx.textBaseline = 'middle';
-    ctx.fillText('cutoff', barX+barW+4, threshY);
+    ctx.fillText('cutoff', barX+barW+5, threshY);
 
     ctx.fillStyle = '#1c1c1c';
-    ctx.font = '9px -apple-system, sans-serif';
+    ctx.font = '13px -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('Density', barX+barW/2, barY-6);
+    ctx.fillText('Density', barX+barW/2, barY-7);
     ctx.restore();
   }
 
   // ---------- recompute + redraw whenever a slider changes ----------
-  const GRID = 70;
+  const GRID = 85;
   const gx = new Array(GRID), gy = new Array(GRID);
   for(let i=0;i<GRID;i++) gx[i] = minX + (maxX-minX)*i/(GRID-1);
   for(let j=0;j<GRID;j++) gy[j] = minY + (maxY-minY)*j/(GRID-1);
@@ -522,12 +568,12 @@
     });
 
     ctx.fillStyle = '#1c1c1c';
-    ctx.font = '10.5px -apple-system, sans-serif';
+    ctx.font = '15px -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText('Trait 1', (ML + CSS_W-MR)/2, CSS_H-6);
+    ctx.fillText('Trait 1', (ML + CSS_W-MR)/2, CSS_H-8);
     ctx.save();
-    ctx.translate(12, CSS_H/2);
+    ctx.translate(18, CSS_H/2);
     ctx.rotate(-Math.PI/2);
     ctx.fillText('Trait 2', 0, 0);
     ctx.restore();
