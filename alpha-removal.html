@@ -33,7 +33,7 @@
     gap: 28px;
   }
   .panel-label{
-    font-size: 12.5px;
+    font-size: 16px;
     color: var(--muted);
     letter-spacing: 0.02em;
     text-align:center;
@@ -49,7 +49,7 @@
   .legend{
     display:flex;
     gap: 18px;
-    font-size: 12.5px;
+    font-size: 16px;
     color: var(--muted);
   }
   .legend-item{ display:flex; align-items:center; gap: 6px; }
@@ -332,7 +332,7 @@
   lineCanvas.style.width = LINE_W+'px'; lineCanvas.style.height = LINE_H+'px';
   lineCtx.scale(dpr,dpr);
 
-  const LML = 52, LMT = 20, LMB = 40, LMR = 20;
+  const LML = 84, LMT = 20, LMB = 54, LMR = 20;
   function niceTicks(min, max, target){
     const range = max - min;
     const rawStep = range / target;
@@ -432,7 +432,7 @@
     lineCtx.textBaseline = 'alphabetic';
     lineCtx.fillText('Proportion removed (%)', (LML+LINE_W-LMR)/2, LINE_H-6);
     lineCtx.save();
-    lineCtx.translate(12, (LMT+LINE_H-LMB)/2);
+    lineCtx.translate(18, (LMT+LINE_H-LMB)/2);
     lineCtx.rotate(-Math.PI/2);
     lineCtx.fillText('Functional richness', 0, 0);
     lineCtx.restore();

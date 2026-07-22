@@ -335,7 +335,7 @@
   canvas.style.width = CSS_W+'px'; canvas.style.height = CSS_H+'px';
   ctx.scale(dpr,dpr);
 
-  const ML = 50, MT = 42, MB = 42, MR = 110;
+  const ML = 82, MT = 42, MB = 62, MR = 110;
   function toPx(x,y){
     const px = ML + (x-minX)/(maxX-minX) * (CSS_W-ML-MR);
     const py = CSS_H - MB - (y-minY)/(maxY-minY) * (CSS_H-MT-MB);
@@ -402,7 +402,7 @@
     ctx.setLineDash([]);
 
     ctx.fillStyle = '#78716a';
-    ctx.font = '12.5px -apple-system, sans-serif';
+    ctx.font = '15px -apple-system, sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillText('High', barX+barW+5, barY-2);
@@ -412,7 +412,7 @@
     ctx.fillText('cutoff', barX+barW+5, threshY);
 
     ctx.fillStyle = '#1c1c1c';
-    ctx.font = '13px -apple-system, sans-serif';
+    ctx.font = '16px -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     ctx.fillText('Density', barX+barW/2, barY-7);
@@ -573,7 +573,7 @@
     ctx.textBaseline = 'alphabetic';
     ctx.fillText('Trait 1', (ML + CSS_W-MR)/2, CSS_H-8);
     ctx.save();
-    ctx.translate(18, CSS_H/2);
+    ctx.translate(20, CSS_H/2);
     ctx.rotate(-Math.PI/2);
     ctx.fillText('Trait 2', 0, 0);
     ctx.restore();

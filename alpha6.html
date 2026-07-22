@@ -201,7 +201,7 @@
   const pad = Math.max(rangeX, rangeY) * 0.25;
   const minX = Math.min(...xs)-pad, maxX = Math.max(...xs)+pad;
   const minY = Math.min(...ys)-pad, maxY = Math.max(...ys)+pad;
-  const M = 38;
+  const M = 66;
   function toPx(pt){
     const x = M + (pt.x-minX)/(maxX-minX) * (CSS_W-2*M);
     const y = CSS_H - M - (pt.y-minY)/(maxY-minY) * (CSS_H-2*M);
@@ -308,7 +308,7 @@
     ctx.textBaseline = 'alphabetic';
     ctx.fillText('Trait 1', CSS_W/2, CSS_H-6);
     ctx.save();
-    ctx.translate(12, CSS_H/2);
+    ctx.translate(16, CSS_H/2);
     ctx.rotate(-Math.PI/2);
     ctx.fillText('Trait 2', 0, 0);
     ctx.restore();

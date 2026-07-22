@@ -240,7 +240,7 @@
   canvas.style.width = CSS_W+'px'; canvas.style.height = CSS_H+'px';
   ctx.scale(dpr,dpr);
 
-  const ML = 36, MT = 32, MB = 32, MR = 84;
+  const ML = 66, MT = 32, MB = 50, MR = 100;
   function toPx(x,y){
     const px = ML + (x-minX)/(maxX-minX) * (CSS_W-ML-MR);
     const py = CSS_H - MB - (y-minY)/(maxY-minY) * (CSS_H-MT-MB);
@@ -319,7 +319,7 @@
 
     // labels
     ctx.fillStyle = '#78716a';
-    ctx.font = '8.5px -apple-system, sans-serif';
+    ctx.font = '12px -apple-system, sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillText('High', barX+barW+4, barY-2);
@@ -330,7 +330,7 @@
 
     // title, above the bar
     ctx.fillStyle = '#1c1c1c';
-    ctx.font = '9px -apple-system, sans-serif';
+    ctx.font = '13px -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     ctx.fillText('Density', barX+barW/2, barY-6);
@@ -402,7 +402,7 @@
     ctx.textBaseline = 'alphabetic';
     ctx.fillText('Trait 1', (ML + CSS_W-MR)/2, CSS_H-6);
     ctx.save();
-    ctx.translate(12, CSS_H/2);
+    ctx.translate(16, CSS_H/2);
     ctx.rotate(-Math.PI/2);
     ctx.fillText('Trait 2', 0, 0);
     ctx.restore();
