@@ -200,7 +200,7 @@
   // ---------- canvas setup ----------
   const canvas = document.getElementById('cnv');
   const ctx = canvas.getContext('2d');
-  const CSS_W = 460, CSS_H = 400;
+  const CSS_W = 494, CSS_H = 400;
   const dpr = window.devicePixelRatio || 1;
   canvas.width = CSS_W*dpr; canvas.height = CSS_H*dpr;
   canvas.style.width = CSS_W+'px'; canvas.style.height = CSS_H+'px';
@@ -212,10 +212,10 @@
   const pad = Math.max(rangeX, rangeY) * 0.25;
   const minX = Math.min(...xs)-pad, maxX = Math.max(...xs)+pad;
   const minY = Math.min(...ys)-pad, maxY = Math.max(...ys)+pad;
-  const M = 66;
+  const ML = 66, MT = 66, MB = 66, MR = 100;
   function toPx(pt){
-    const x = M + (pt.x-minX)/(maxX-minX) * (CSS_W-2*M);
-    const y = CSS_H - M - (pt.y-minY)/(maxY-minY) * (CSS_H-2*M);
+    const x = ML + (pt.x-minX)/(maxX-minX) * (CSS_W-ML-MR);
+    const y = CSS_H - MB - (pt.y-minY)/(maxY-minY) * (CSS_H-MT-MB);
     return {x,y};
   }
 
@@ -246,7 +246,7 @@
     ctx.lineWidth = 1;
 
     // frame box
-    ctx.strokeRect(M, M, CSS_W-2*M, CSS_H-2*M);
+    ctx.strokeRect(ML, MT, CSS_W-ML-MR, CSS_H-MT-MB);
 
     // x ticks (bottom edge)
     ctx.textAlign = 'center';
@@ -254,10 +254,10 @@
     xTicks.forEach(v=>{
       const p = toPx({x:v, y:minY});
       ctx.beginPath();
-      ctx.moveTo(p.x, CSS_H-M);
-      ctx.lineTo(p.x, CSS_H-M+5);
+      ctx.moveTo(p.x, CSS_H-MB);
+      ctx.lineTo(p.x, CSS_H-MB+5);
       ctx.stroke();
-      ctx.fillText(v, p.x, CSS_H-M+8);
+      ctx.fillText(v, p.x, CSS_H-MB+8);
     });
 
     // y ticks (left edge)
@@ -266,10 +266,10 @@
     yTicks.forEach(v=>{
       const p = toPx({x:minX, y:v});
       ctx.beginPath();
-      ctx.moveTo(M-5, p.y);
-      ctx.lineTo(M, p.y);
+      ctx.moveTo(ML-5, p.y);
+      ctx.lineTo(ML, p.y);
       ctx.stroke();
-      ctx.fillText(v, M-8, p.y);
+      ctx.fillText(v, ML-8, p.y);
     });
     ctx.restore();
   }
@@ -317,7 +317,7 @@
     ctx.font = '15px -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText('Trait 1', CSS_W/2, CSS_H-6);
+    ctx.fillText('Trait 1', (ML + CSS_W-MR)/2, CSS_H-6);
     ctx.save();
     ctx.translate(16, CSS_H/2);
     ctx.rotate(-Math.PI/2);
