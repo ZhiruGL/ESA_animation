@@ -291,13 +291,13 @@
   // ---------- canvas setup ----------
   const canvas = document.getElementById('cnv');
   const ctx = canvas.getContext('2d');
-  const CSS_W = 494, CSS_H = 400;
+  const CSS_W = 468, CSS_H = 400;
   const dpr = window.devicePixelRatio || 1;
   canvas.width = CSS_W*dpr; canvas.height = CSS_H*dpr;
   canvas.style.width = CSS_W+'px'; canvas.style.height = CSS_H+'px';
   ctx.scale(dpr,dpr);
 
-  const ML = 66, MT = 66, MB = 66, MR = 100;
+  const ML = 66, MT = 66, MB = 66, MR = 74;
   function toPx(x,y){
     const px = ML + (x-minX)/(maxX-minX) * (CSS_W-ML-MR);
     const py = CSS_H - MB - (y-minY)/(maxY-minY) * (CSS_H-MT-MB);
@@ -342,7 +342,7 @@
 
   function drawLegend(alpha){
     const barW = 11;
-    const barX = CSS_W - MR + 10;
+    const barX = CSS_W - MR + 24;
     const barY = MT;
     const barH = CSS_H - MT - MB;
 
@@ -383,7 +383,7 @@
     ctx.textBaseline = 'bottom';
     ctx.fillText('Low', barX+barW+4, barY+barH+2);
     ctx.textBaseline = 'middle';
-    ctx.fillText('90% cutoff', barX+barW+4, threshY);
+    ctx.fillText('90%', barX+barW+4, threshY);
 
     // title, above the bar
     ctx.fillStyle = '#1c1c1c';

@@ -200,7 +200,7 @@
   // ---------- canvas setup ----------
   const canvas = document.getElementById('cnv');
   const ctx = canvas.getContext('2d');
-  const CSS_W = 494, CSS_H = 400;
+  const CSS_W = 468, CSS_H = 400;
   const dpr = window.devicePixelRatio || 1;
   canvas.width = CSS_W*dpr; canvas.height = CSS_H*dpr;
   canvas.style.width = CSS_W+'px'; canvas.style.height = CSS_H+'px';
@@ -212,7 +212,7 @@
   const pad = Math.max(rangeX, rangeY) * 0.25;
   const minX = Math.min(...xs)-pad, maxX = Math.max(...xs)+pad;
   const minY = Math.min(...ys)-pad, maxY = Math.max(...ys)+pad;
-  const ML = 66, MT = 66, MB = 66, MR = 100;
+  const ML = 66, MT = 66, MB = 66, MR = 74;
   function toPx(pt){
     const x = ML + (pt.x-minX)/(maxX-minX) * (CSS_W-ML-MR);
     const y = CSS_H - MB - (pt.y-minY)/(maxY-minY) * (CSS_H-MT-MB);
