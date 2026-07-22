@@ -291,13 +291,13 @@
   // ---------- canvas setup ----------
   const canvas = document.getElementById('cnv');
   const ctx = canvas.getContext('2d');
-  const CSS_W = 494, CSS_H = 350;
+  const CSS_W = 494, CSS_H = 400;
   const dpr = window.devicePixelRatio || 1;
   canvas.width = CSS_W*dpr; canvas.height = CSS_H*dpr;
   canvas.style.width = CSS_W+'px'; canvas.style.height = CSS_H+'px';
   ctx.scale(dpr,dpr);
 
-  const ML = 66, MT = 32, MB = 50, MR = 100;
+  const ML = 66, MT = 66, MB = 66, MR = 100;
   function toPx(x,y){
     const px = ML + (x-minX)/(maxX-minX) * (CSS_W-ML-MR);
     const py = CSS_H - MB - (y-minY)/(maxY-minY) * (CSS_H-MT-MB);
