@@ -20,18 +20,20 @@ html.transparent,html.transparent body{background:transparent}
 body{display:flex;flex-direction:column;padding:16px;gap:12px}
 
 .tblwrap{flex:1;min-height:0;width:100%;overflow-y:auto;scrollbar-width:thin}
-table{border-collapse:collapse;width:100%;font-size:12px}
+/* --fs = base text size; change with ?fs=16 etc. */
+:root{--fs:15px}
+table{border-collapse:collapse;width:100%;font-size:var(--fs)}
 thead th{position:sticky;top:0;background:var(--bg);z-index:1}
 html.transparent thead th{background:transparent}
-th,td{padding:3px 10px;border-bottom:1px solid var(--line);text-align:center;transition:background .3s}
-th{font-weight:600;font-size:12px;color:var(--muted);border-bottom:1.5px solid var(--line)}
+th,td{padding:.3em .8em;border-bottom:1px solid var(--line);text-align:center;transition:background .3s}
+th{font-weight:700;font-size:var(--fs);color:var(--fg);border-bottom:2px solid var(--fg)}
 th:first-child,td:first-child{text-align:left}
-td:first-child{color:var(--muted);white-space:nowrap}
-td .sk{display:inline-block;width:34px;height:8px;border-radius:4px;background:var(--skel);
+td:first-child{color:var(--muted);font-weight:700;white-space:nowrap}
+td .sk{display:inline-block;width:2.4em;height:.55em;border-radius:.3em;background:var(--skel);
   vertical-align:middle;transition:background .3s}
 tbody tr{cursor:pointer}
 tr.active td{background:var(--row)}
-tr.active td:first-child{color:var(--fg);font-weight:600}
+tr.active td:first-child{color:var(--fg)}
 tr.active td .sk{background:var(--hi)}
 tr.done td:first-child{color:var(--fg)}
 
@@ -69,6 +71,7 @@ if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: 
   document.documentElement.dataset.theme = "dark";
 if (P.get("bg") === "transparent") document.documentElement.classList.add("transparent");
 if (P.get("controls") === "0") document.getElementById("controls").classList.add("hidden");
+if (parseFloat(P.get("fs")) > 0) document.documentElement.style.setProperty("--fs", parseFloat(P.get("fs")) + "px");
 
 /* ==================== state ==================== */
 let placed = [];   // indices lit so far, in order
@@ -140,7 +143,15 @@ function updateUI(){
 }
 
 /* ==================== sync with the plot iframe ==================== */
-const ACTIONS = {next, all, reset, setPlay, place: i => { stop(); place(i); }};
+const ACTIONS = {next, all, reset, setPlay, place: i => { stop(); place(i); },
+  // reply from the plot iframe to our hello: adopt its progress and keep pace with it
+  state: s => {
+    stop(); placed = [];
+    rows.forEach(tr => tr.classList.remove("done"));
+    s.placed.forEach(i => { placed.push(i); rows[i].classList.add("done"); });
+    setActive(placed.length ? placed[placed.length - 1] : -1); updateUI();
+    if (s.playing) setTimeout(play, STEP_MS / SPEED);
+  }};
 const bc = ("BroadcastChannel" in window) ? new BroadcastChannel(P.get("channel") || "traitspace") : null;
 function act(cmd, arg){ if (bc) bc.postMessage({cmd, arg}); ACTIONS[cmd](arg); }
 if (bc) bc.onmessage = e => { const f = e.data && ACTIONS[e.data.cmd]; if (f) f(e.data.arg); };
@@ -159,6 +170,7 @@ document.addEventListener("keydown", e => {
 });
 
 updateUI();
+if (bc) bc.postMessage({cmd:"hello"});   // ask a plot iframe (if any) for its current state
 if (P.get("autoplay") === "1") setTimeout(() => act("setPlay", true), 600);
 })();
 </script>

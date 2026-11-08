@@ -102,7 +102,8 @@ const theme = P.get("theme");
 if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches))
   document.documentElement.dataset.theme = "dark";
 if (P.get("bg") === "transparent") document.documentElement.classList.add("transparent");
-if (P.get("controls") === "0") document.getElementById("controls").classList.add("hidden");
+// buttons hidden by default; add ?controls=1 to show them
+if (P.get("controls") !== "1") document.getElementById("controls").classList.add("hidden");
 if (P.get("table") === "0") document.body.classList.add("plot-only");   // plot alone, e.g. next to traits-table.html
 
 /* ==================== geometry ==================== */
@@ -262,7 +263,9 @@ function updateUI(){
 // Every user action is broadcast on a same-origin channel; a peer page
 // (traits-table.html) runs the same action, so both iframes stay in step.
 function setPlay(want){ if (want && !playing) play(); else if (!want && playing) stop(); }
-const ACTIONS = {next, all, reset, setPlay, place: i => { stop(); place(i); }};
+const ACTIONS = {next, all, reset, setPlay, place: i => { stop(); place(i); },
+  // a table iframe that loads late says hello; reply with the current state so it catches up
+  hello: () => { if (bc) bc.postMessage({cmd:"state", arg:{placed, playing}}); }};
 const bc = ("BroadcastChannel" in window) ? new BroadcastChannel(P.get("channel") || "traitspace") : null;
 function act(cmd, arg){ if (bc) bc.postMessage({cmd, arg}); ACTIONS[cmd](arg); }
 if (bc) bc.onmessage = e => { const f = e.data && ACTIONS[e.data.cmd]; if (f) f(e.data.arg); };
@@ -273,7 +276,8 @@ $("bPlay").addEventListener("click", () => act("setPlay", !playing));
 $("bNext").addEventListener("click", () => act("next"));
 $("bAll").addEventListener("click", () => act("all"));
 $("bReset").addEventListener("click", () => act("reset"));
-$("plot").addEventListener("click", () => act("next"));
+// click the plot: pause / resume; once finished, a click replays from the start
+$("plot").addEventListener("click", () => act("setPlay", !playing));
 document.addEventListener("keydown", e => {
   if (e.key === "ArrowRight"){ e.preventDefault(); act("next"); }
   else if (e.key === " "){ e.preventDefault(); act("setPlay", !playing); }
@@ -282,7 +286,8 @@ document.addEventListener("keydown", e => {
 });
 
 updateUI();
-if (P.get("autoplay") === "1") setTimeout(() => act("setPlay", true), 600);
+// plays automatically on load; add ?autoplay=0 to start paused
+if (P.get("autoplay") !== "0") setTimeout(() => act("setPlay", true), 600);
 })();
 </script>
 </body>
