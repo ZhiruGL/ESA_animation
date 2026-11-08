@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Traits to Trait Space</title>
+<style>
+:root{
+  --bg:#ffffff; --fg:#1f2328; --muted:#8a919a; --line:#e8eaed;
+  --skel:#eceef1; --row:#fff4d6; --hi:#f2a900; --pt:#1f2328; --btn:#f6f7f9;
+}
+:root[data-theme="dark"]{
+  --bg:#111418; --fg:#e6e8eb; --muted:#8b939c; --line:#262b31;
+  --skel:#232830; --row:#2e2814; --hi:#f5b82e; --pt:#e6e8eb; --btn:#1a1e23;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+  font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+html.transparent,html.transparent body{background:transparent}
+body{display:flex;flex-direction:column;padding:16px;gap:12px}
+.wrap{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);
+  gap:32px;align-items:center}
+.right{height:100%;min-height:240px;display:flex;min-width:0}
+svg{width:100%;height:100%;display:block;cursor:pointer;user-select:none}
+
+/* ---------- table ---------- */
+.tblwrap{width:100%;max-height:100%;overflow-y:auto;scrollbar-width:thin}
+.left{height:100%;min-height:0;display:flex;align-items:center}
+table{border-collapse:collapse;width:100%;font-size:12px}
+thead th{position:sticky;top:0;background:var(--bg);z-index:1}
+th,td{padding:3px 10px;border-bottom:1px solid var(--line);text-align:center;transition:background .3s}
+th{font-weight:600;font-size:12px;color:var(--muted);border-bottom:1.5px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+td:first-child{color:var(--muted);white-space:nowrap}
+td .sk{display:inline-block;width:34px;height:8px;border-radius:4px;background:var(--skel);
+  vertical-align:middle;transition:background .3s}
+tbody tr{cursor:pointer}
+tr.active td{background:var(--row)}
+tr.active td:first-child{color:var(--fg);font-weight:600}
+tr.active td .sk{background:var(--hi)}
+tr.done td:first-child{color:var(--fg)}
+
+/* ---------- plot ---------- */
+.axis{stroke:var(--muted);stroke-width:1.5;fill:none}
+.arrow{fill:var(--muted)}
+.axis-title{fill:var(--muted);font-size:13px;font-weight:600}
+.pt{fill:var(--pt)}
+.pop{animation:pop .35s cubic-bezier(.3,1.7,.5,1) both}
+@keyframes pop{from{transform:scale(0)}to{transform:scale(1)}}
+.ring{fill:none;stroke:var(--hi);stroke-width:2;animation:ring .69s ease-out both}
+@keyframes ring{from{transform:scale(.6);opacity:1}to{transform:scale(2.6);opacity:0}}
+.pt.active{fill:var(--hi)}
+
+/* ---------- controls ---------- */
+.controls{display:flex;gap:6px;align-items:center}
+.controls.hidden{display:none}
+.btn{font:inherit;font-size:13px;color:var(--fg);background:var(--btn);border:1px solid var(--line);
+  border-radius:8px;padding:5px 12px;cursor:pointer}
+.btn.primary{background:var(--fg);color:var(--bg);border-color:var(--fg);min-width:84px}
+.btn:disabled{opacity:.4;cursor:default}
+.count{font-size:12px;color:var(--muted);margin-left:6px;font-variant-numeric:tabular-nums}
+
+.plot-only .left{display:none}
+.plot-only .wrap{grid-template-columns:minmax(0,1fr)}
+
+@media (max-width:760px){
+  html,body{height:auto}
+  .wrap{grid-template-columns:1fr}
+  .right{height:auto} svg{height:auto}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="left"><div class="tblwrap" id="tblwrap"><table id="tbl"><thead></thead><tbody></tbody></table></div></section>
+  <section class="right">
+    <svg id="plot" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Trait space">
+      <g id="gAxes"></g><g id="gPts"></g>
+    </svg>
+  </section>
+</div>
+<div class="controls" id="controls">
+  <button class="btn primary" id="bPlay">▶ Play</button>
+  <button class="btn" id="bNext">Next ▶</button>
+  <button class="btn" id="bAll">All</button>
+  <button class="btn" id="bReset">Reset</button>
+  <span class="count" id="count"></span>
+</div>
+
+<script>
+(function(){
+"use strict";
+/* ==================== options ==================== */
+const P = new URLSearchParams(location.search);
+const N = Math.max(3, Math.min(100, parseInt(P.get("n")) || 20));     // number of species
+const NT = Math.max(2, Math.min(5, parseInt(P.get("traits")) || 3));  // trait columns shown
+const SPEED = Math.max(.25, Math.min(4, parseFloat(P.get("speed")) || 1));
+const SEED = parseInt(P.get("seed")) || 7;
+const STEP_MS = 200;   // time between points during Play (divided by speed)
+
+const theme = P.get("theme");
+if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches))
+  document.documentElement.dataset.theme = "dark";
+if (P.get("bg") === "transparent") document.documentElement.classList.add("transparent");
+if (P.get("controls") === "0") document.getElementById("controls").classList.add("hidden");
+if (P.get("table") === "0") document.body.classList.add("plot-only");   // plot alone, e.g. next to traits-table.html
+
+/* ==================== geometry ==================== */
+const W = 480, H = 400, M = {l:44, r:20, t:20, b:44};
+const x0 = M.l, x1 = W - M.r, y0 = H - M.b, y1 = M.t;
+
+// seeded RNG so the point pattern is identical every load
+function mulberry32(a){ return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rnd = mulberry32(SEED);
+const gauss = () => { const u = 1 - rnd(), v = rnd(); return Math.sqrt(-2*Math.log(u)) * Math.cos(2*Math.PI*v); };
+
+// abstract points in [0,1]^2, clustered around the centre
+//   shape=round  -> uniform within a disc (default)
+//   shape=square -> uniform within a centred square
+//   shape=gauss  -> isotropic Gaussian blob
+const SHAPE = P.get("shape") || "round";
+function samplePoint(){
+  let u, v;
+  if (SHAPE === "square"){ u = .2 + .6*rnd(); v = .2 + .6*rnd(); }
+  else if (SHAPE === "gauss"){ u = .5 + .14*gauss(); v = .5 + .14*gauss(); }
+  else { const r = .34*Math.sqrt(rnd()), th = 2*Math.PI*rnd(); u = .5 + r*Math.cos(th); v = .5 + r*Math.sin(th); }
+  return {u: Math.min(.95, Math.max(.05, u)), v: Math.min(.95, Math.max(.05, v))};
+}
+// rejection sampling with a minimum on-screen spacing between points;
+// if a point can't be fitted, the spacing is relaxed slightly and retried
+const MIN_GAP = parseFloat(P.get("gap")) || 30;   // minimum centre-to-centre distance (SVG px)
+const PTS = [];
+{
+  let gap = MIN_GAP, tries = 0;
+  while (PTS.length < N){
+    const c = samplePoint();
+    const ok = PTS.every(p => Math.hypot((p.u - c.u)*(x1 - x0), (p.v - c.v)*(y0 - y1)) >= gap);
+    if (ok){ PTS.push(c); tries = 0; }
+    else if (++tries > 2000){ gap *= .95; tries = 0; }
+  }
+}
+const sx = u => x0 + u * (x1 - x0);
+const sy = v => y0 - v * (y0 - y1);
+
+/* ==================== state ==================== */
+let placed = [];   // indices placed, in order
+let active = -1;
+let playing = false;
+let runId = 0;
+
+/* ==================== helpers ==================== */
+const $ = id => document.getElementById(id);
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent){
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms / SPEED));
+
+/* ==================== build table ==================== */
+const thead = $("tbl").tHead, tbody = $("tbl").tBodies[0];
+(function(){
+  const hr = thead.insertRow();
+  hr.innerHTML = "<th>Species</th>" + Array.from({length:NT}, (_, j) => `<th>Trait ${j+1}</th>`).join("");
+  for (let i = 0; i < N; i++){
+    const tr = tbody.insertRow();
+    tr.innerHTML = `<td>Species ${i+1}</td>` + "<td><span class='sk'></span></td>".repeat(NT);
+  }
+})();
+const rows = Array.from(tbody.rows);
+
+/* ==================== build axes ==================== */
+(function(){
+  const g = $("gAxes");
+  el("path", {d:`M${x0},${y1-6}V${y0}H${x1+6}`, class:"axis"}, g);
+  el("path", {d:`M${x1+12},${y0}l-9,-5v10z`, class:"arrow"}, g);
+  el("path", {d:`M${x0},${y1-12}l-5,9h10z`, class:"arrow"}, g);
+  const tx = el("text", {x:(x0+x1)/2, y:H-14, "text-anchor":"middle", class:"axis-title"}, g);
+  tx.textContent = "PC1";
+  const ty = el("text", {x:0, y:0, "text-anchor":"middle", class:"axis-title",
+    transform:`translate(${x0-18},${(y0+y1)/2}) rotate(-90)`}, g);
+  ty.textContent = "PC2";
+})();
+
+/* ==================== core ==================== */
+const gPts = $("gPts");
+const dots = new Map();
+
+function setActive(i){
+  active = i;
+  rows.forEach((tr, j) => tr.classList.toggle("active", j === i));
+  if (i >= 0){   // keep the lit row visible inside the scrolling table
+    const wrap = $("tblwrap"), tr = rows[i], head = thead.offsetHeight;
+    const top = tr.offsetTop - head, bot = tr.offsetTop + tr.offsetHeight;
+    if (top < wrap.scrollTop) wrap.scrollTop = top;
+    else if (bot > wrap.scrollTop + wrap.clientHeight) wrap.scrollTop = bot - wrap.clientHeight;
+  }
+  dots.forEach((d, j) => d.classList.toggle("active", j === i));
+}
+
+function addDot(i, delay){
+  const g = el("g", {transform:`translate(${sx(PTS[i].u)},${sy(PTS[i].v)})`}, gPts);
+  const inner = el("g", {class:"pop"}, g);
+  if (delay) inner.style.animationDelay = delay + "ms";
+  const c = el("circle", {r:5, class:"pt"}, inner);
+  if (!delay) el("circle", {r:5, class:"ring"}, g);
+  dots.set(i, c);
+}
+
+function place(i){
+  if (placed.includes(i)) { setActive(i); return; }
+  placed.push(i);
+  rows[i].classList.add("done");
+  addDot(i, 0);
+  setActive(i);
+  updateUI();
+}
+
+const nextIndex = () => { for (let i = 0; i < N; i++) if (!placed.includes(i)) return i; return -1; };
+
+function next(){ stop(); const n = nextIndex(); if (n >= 0) place(n); }
+
+function all(){
+  stop(); setActive(-1);
+  let k = 0;
+  for (let i = 0; i < N; i++) if (!placed.includes(i)){
+    placed.push(i); rows[i].classList.add("done"); addDot(i, (k++ * 20) / SPEED);
+  }
+  updateUI();
+}
+
+function reset(){
+  stop(); placed = []; dots.clear(); gPts.innerHTML = "";
+  rows.forEach(tr => tr.classList.remove("done"));
+  setActive(-1); updateUI();
+}
+
+async function play(){
+  if (playing){ stop(); return; }
+  if (nextIndex() < 0) reset();
+  const my = ++runId; playing = true; updateUI();
+  while (my === runId){
+    const n = nextIndex();
+    if (n < 0) break;
+    place(n);
+    await sleep(STEP_MS);
+  }
+  if (my === runId){ playing = false; setActive(-1); updateUI(); }
+}
+function stop(){ runId++; if (playing){ playing = false; updateUI(); } }
+
+function updateUI(){
+  $("bPlay").textContent = playing ? "❚❚ Pause" : "▶ Play";
+  $("bNext").disabled = $("bAll").disabled = nextIndex() < 0;
+  $("count").textContent = `${placed.length} / ${N}`;
+}
+
+/* ==================== sync with the table iframe ==================== */
+// Every user action is broadcast on a same-origin channel; a peer page
+// (traits-table.html) runs the same action, so both iframes stay in step.
+function setPlay(want){ if (want && !playing) play(); else if (!want && playing) stop(); }
+const ACTIONS = {next, all, reset, setPlay, place: i => { stop(); place(i); }};
+const bc = ("BroadcastChannel" in window) ? new BroadcastChannel(P.get("channel") || "traitspace") : null;
+function act(cmd, arg){ if (bc) bc.postMessage({cmd, arg}); ACTIONS[cmd](arg); }
+if (bc) bc.onmessage = e => { const f = e.data && ACTIONS[e.data.cmd]; if (f) f(e.data.arg); };
+
+/* ==================== wiring ==================== */
+rows.forEach((tr, i) => tr.addEventListener("click", () => act("place", i)));
+$("bPlay").addEventListener("click", () => act("setPlay", !playing));
+$("bNext").addEventListener("click", () => act("next"));
+$("bAll").addEventListener("click", () => act("all"));
+$("bReset").addEventListener("click", () => act("reset"));
+$("plot").addEventListener("click", () => act("next"));
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight"){ e.preventDefault(); act("next"); }
+  else if (e.key === " "){ e.preventDefault(); act("setPlay", !playing); }
+  else if (e.key === "r" || e.key === "R") act("reset");
+  else if (e.key === "a" || e.key === "A") act("all");
+});
+
+updateUI();
+if (P.get("autoplay") === "1") setTimeout(() => act("setPlay", true), 600);
+})();
+</script>
+</body>
+</html>

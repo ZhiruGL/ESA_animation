@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trait Table</title>
+<style>
+:root{
+  --bg:#ffffff; --fg:#1f2328; --muted:#8a919a; --line:#e8eaed;
+  --skel:#eceef1; --row:#fff4d6; --hi:#f2a900; --btn:#f6f7f9;
+}
+:root[data-theme="dark"]{
+  --bg:#111418; --fg:#e6e8eb; --muted:#8b939c; --line:#262b31;
+  --skel:#232830; --row:#2e2814; --hi:#f5b82e; --btn:#1a1e23;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+  font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+html.transparent,html.transparent body{background:transparent}
+body{display:flex;flex-direction:column;padding:16px;gap:12px}
+
+.tblwrap{flex:1;min-height:0;width:100%;overflow-y:auto;scrollbar-width:thin}
+table{border-collapse:collapse;width:100%;font-size:12px}
+thead th{position:sticky;top:0;background:var(--bg);z-index:1}
+html.transparent thead th{background:transparent}
+th,td{padding:3px 10px;border-bottom:1px solid var(--line);text-align:center;transition:background .3s}
+th{font-weight:600;font-size:12px;color:var(--muted);border-bottom:1.5px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+td:first-child{color:var(--muted);white-space:nowrap}
+td .sk{display:inline-block;width:34px;height:8px;border-radius:4px;background:var(--skel);
+  vertical-align:middle;transition:background .3s}
+tbody tr{cursor:pointer}
+tr.active td{background:var(--row)}
+tr.active td:first-child{color:var(--fg);font-weight:600}
+tr.active td .sk{background:var(--hi)}
+tr.done td:first-child{color:var(--fg)}
+
+.controls{display:flex;gap:6px;align-items:center}
+.controls.hidden{display:none}
+.btn{font:inherit;font-size:13px;color:var(--fg);background:var(--btn);border:1px solid var(--line);
+  border-radius:8px;padding:5px 12px;cursor:pointer}
+.btn.primary{background:var(--fg);color:var(--bg);border-color:var(--fg);min-width:84px}
+.btn:disabled{opacity:.4;cursor:default}
+.count{font-size:12px;color:var(--muted);margin-left:6px;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="tblwrap" id="tblwrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+<div class="controls" id="controls">
+  <button class="btn primary" id="bPlay">▶ Play</button>
+  <button class="btn" id="bNext">Next ▶</button>
+  <button class="btn" id="bAll">All</button>
+  <button class="btn" id="bReset">Reset</button>
+  <span class="count" id="count"></span>
+</div>
+
+<script>
+(function(){
+"use strict";
+/* ==================== options (keep n / speed identical to the plot iframe) ==================== */
+const P = new URLSearchParams(location.search);
+const N = Math.max(3, Math.min(100, parseInt(P.get("n")) || 20));     // number of species
+const NT = Math.max(2, Math.min(5, parseInt(P.get("traits")) || 3));  // trait columns
+const SPEED = Math.max(.25, Math.min(4, parseFloat(P.get("speed")) || 1));
+const STEP_MS = 200;   // time between rows during Play (divided by speed)
+
+const theme = P.get("theme");
+if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches))
+  document.documentElement.dataset.theme = "dark";
+if (P.get("bg") === "transparent") document.documentElement.classList.add("transparent");
+if (P.get("controls") === "0") document.getElementById("controls").classList.add("hidden");
+
+/* ==================== state ==================== */
+let placed = [];   // indices lit so far, in order
+let active = -1;
+let playing = false;
+let runId = 0;
+
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms / SPEED));
+
+/* ==================== build table ==================== */
+const thead = $("tbl").tHead, tbody = $("tbl").tBodies[0];
+{
+  const hr = thead.insertRow();
+  hr.innerHTML = "<th>Species</th>" + Array.from({length:NT}, (_, j) => `<th>Trait ${j+1}</th>`).join("");
+  for (let i = 0; i < N; i++){
+    const tr = tbody.insertRow();
+    tr.innerHTML = `<td>Species ${i+1}</td>` + "<td><span class='sk'></span></td>".repeat(NT);
+  }
+}
+const rows = Array.from(tbody.rows);
+
+/* ==================== core ==================== */
+function setActive(i){
+  active = i;
+  rows.forEach((tr, j) => tr.classList.toggle("active", j === i));
+  if (i >= 0){   // keep the lit row visible inside the scrolling table
+    const wrap = $("tblwrap"), tr = rows[i], head = thead.offsetHeight;
+    const top = tr.offsetTop - head, bot = tr.offsetTop + tr.offsetHeight;
+    if (top < wrap.scrollTop) wrap.scrollTop = top;
+    else if (bot > wrap.scrollTop + wrap.clientHeight) wrap.scrollTop = bot - wrap.clientHeight;
+  }
+}
+function place(i){
+  if (!placed.includes(i)){ placed.push(i); rows[i].classList.add("done"); }
+  setActive(i); updateUI();
+}
+const nextIndex = () => { for (let i = 0; i < N; i++) if (!placed.includes(i)) return i; return -1; };
+function next(){ stop(); const n = nextIndex(); if (n >= 0) place(n); }
+function all(){
+  stop();
+  for (let i = 0; i < N; i++) if (!placed.includes(i)){ placed.push(i); rows[i].classList.add("done"); }
+  setActive(-1); updateUI();
+}
+function reset(){
+  stop(); placed = [];
+  rows.forEach(tr => tr.classList.remove("done"));
+  setActive(-1); $("tblwrap").scrollTop = 0; updateUI();
+}
+async function play(){
+  if (playing){ stop(); return; }
+  if (nextIndex() < 0) reset();
+  const my = ++runId; playing = true; updateUI();
+  while (my === runId){
+    const n = nextIndex();
+    if (n < 0) break;
+    place(n);
+    await sleep(STEP_MS);
+  }
+  if (my === runId){ playing = false; setActive(-1); updateUI(); }
+}
+function stop(){ runId++; if (playing){ playing = false; updateUI(); } }
+function setPlay(want){ if (want && !playing) play(); else if (!want && playing) stop(); }
+
+function updateUI(){
+  $("bPlay").textContent = playing ? "❚❚ Pause" : "▶ Play";
+  $("bNext").disabled = $("bAll").disabled = nextIndex() < 0;
+  $("count").textContent = `${placed.length} / ${N}`;
+}
+
+/* ==================== sync with the plot iframe ==================== */
+const ACTIONS = {next, all, reset, setPlay, place: i => { stop(); place(i); }};
+const bc = ("BroadcastChannel" in window) ? new BroadcastChannel(P.get("channel") || "traitspace") : null;
+function act(cmd, arg){ if (bc) bc.postMessage({cmd, arg}); ACTIONS[cmd](arg); }
+if (bc) bc.onmessage = e => { const f = e.data && ACTIONS[e.data.cmd]; if (f) f(e.data.arg); };
+
+/* ==================== wiring ==================== */
+rows.forEach((tr, i) => tr.addEventListener("click", () => act("place", i)));
+$("bPlay").addEventListener("click", () => act("setPlay", !playing));
+$("bNext").addEventListener("click", () => act("next"));
+$("bAll").addEventListener("click", () => act("all"));
+$("bReset").addEventListener("click", () => act("reset"));
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight"){ e.preventDefault(); act("next"); }
+  else if (e.key === " "){ e.preventDefault(); act("setPlay", !playing); }
+  else if (e.key === "r" || e.key === "R") act("reset");
+  else if (e.key === "a" || e.key === "A") act("all");
+});
+
+updateUI();
+if (P.get("autoplay") === "1") setTimeout(() => act("setPlay", true), 600);
+})();
+</script>
+</body>
+</html>
