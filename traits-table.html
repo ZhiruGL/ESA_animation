@@ -26,7 +26,7 @@ table{border-collapse:collapse;width:100%;font-size:var(--fs)}
 thead th{position:sticky;top:0;background:var(--bg);z-index:1}
 html.transparent thead th{background:transparent}
 th,td{padding:.3em .8em;border-bottom:1px solid var(--line);text-align:center;transition:background .3s}
-th{font-weight:700;font-size:var(--fs);color:var(--fg);border-bottom:2px solid var(--fg)}
+th{font-weight:700;font-size:var(--fs);white-space:nowrap;color:var(--fg);border-bottom:2px solid var(--fg)}
 th:first-child,td:first-child{text-align:left}
 td:first-child{color:var(--muted);font-weight:700;white-space:nowrap}
 td .sk{display:inline-block;width:2.4em;height:.55em;border-radius:.3em;background:var(--skel);
@@ -62,7 +62,13 @@ tr.done td:first-child{color:var(--fg)}
 /* ==================== options (keep n / speed identical to the plot iframe) ==================== */
 const P = new URLSearchParams(location.search);
 const N = Math.max(3, Math.min(100, parseInt(P.get("n")) || 20));     // number of species
-const NT = Math.max(2, Math.min(5, parseInt(P.get("traits")) || 3));  // trait columns
+// column labels:  default  -> Trait 1..k
+//                 ?cols=pc -> PC1..PCk
+//                 ?cols=A,B,C -> custom labels (k = number given)
+const COLS_P = (P.get("cols") || "").trim();
+const CUSTOM = COLS_P && COLS_P.toLowerCase() !== "pc" ? COLS_P.split(",").map(s => s.trim()).filter(Boolean) : null;
+const NT = CUSTOM ? CUSTOM.length : Math.max(2, Math.min(5, parseInt(P.get("traits")) || 3));
+const colLabel = j => CUSTOM ? CUSTOM[j] : COLS_P.toLowerCase() === "pc" ? `PC${j+1}` : `Trait ${j+1}`;
 const SPEED = Math.max(.25, Math.min(4, parseFloat(P.get("speed")) || 1));
 const STEP_MS = 200;   // time between rows during Play (divided by speed)
 
@@ -86,7 +92,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms / SPEED));
 const thead = $("tbl").tHead, tbody = $("tbl").tBodies[0];
 {
   const hr = thead.insertRow();
-  hr.innerHTML = "<th>Species</th>" + Array.from({length:NT}, (_, j) => `<th>Trait ${j+1}</th>`).join("");
+  hr.innerHTML = "<th>Species</th>" + Array.from({length:NT}, (_, j) => `<th>${colLabel(j)}</th>`).join("");
   for (let i = 0; i < N; i++){
     const tr = tbody.insertRow();
     tr.innerHTML = `<td>Species ${i+1}</td>` + "<td><span class='sk'></span></td>".repeat(NT);

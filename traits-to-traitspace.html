@@ -26,17 +26,20 @@ svg{width:100%;height:100%;display:block;cursor:pointer;user-select:none}
 /* ---------- table ---------- */
 .tblwrap{width:100%;max-height:100%;overflow-y:auto;scrollbar-width:thin}
 .left{height:100%;min-height:0;display:flex;align-items:center}
-table{border-collapse:collapse;width:100%;font-size:12px}
+/* --fs = base table text size; change with ?fs=16 etc. */
+:root{--fs:15px}
+table{border-collapse:collapse;width:100%;font-size:var(--fs)}
 thead th{position:sticky;top:0;background:var(--bg);z-index:1}
-th,td{padding:3px 10px;border-bottom:1px solid var(--line);text-align:center;transition:background .3s}
-th{font-weight:600;font-size:12px;color:var(--muted);border-bottom:1.5px solid var(--line)}
+html.transparent thead th{background:transparent}
+th,td{padding:.3em .8em;border-bottom:1px solid var(--line);text-align:center;transition:background .3s}
+th{font-weight:700;font-size:var(--fs);white-space:nowrap;color:var(--fg);border-bottom:2px solid var(--fg)}
 th:first-child,td:first-child{text-align:left}
-td:first-child{color:var(--muted);white-space:nowrap}
-td .sk{display:inline-block;width:34px;height:8px;border-radius:4px;background:var(--skel);
+td:first-child{color:var(--muted);font-weight:700;white-space:nowrap}
+td .sk{display:inline-block;width:2.4em;height:.55em;border-radius:.3em;background:var(--skel);
   vertical-align:middle;transition:background .3s}
 tbody tr{cursor:pointer}
 tr.active td{background:var(--row)}
-tr.active td:first-child{color:var(--fg);font-weight:600}
+tr.active td:first-child{color:var(--fg)}
 tr.active td .sk{background:var(--hi)}
 tr.done td:first-child{color:var(--fg)}
 
@@ -104,6 +107,7 @@ if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: 
 if (P.get("bg") === "transparent") document.documentElement.classList.add("transparent");
 // buttons hidden by default; add ?controls=1 to show them
 if (P.get("controls") !== "1") document.getElementById("controls").classList.add("hidden");
+if (parseFloat(P.get("fs")) > 0) document.documentElement.style.setProperty("--fs", parseFloat(P.get("fs")) + "px");
 if (P.get("table") === "0") document.body.classList.add("plot-only");   // plot alone, e.g. next to traits-table.html
 
 /* ==================== geometry ==================== */
