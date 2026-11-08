@@ -28,10 +28,10 @@ svg{width:100%;height:100%;display:block;cursor:pointer;user-select:none}
 .left{height:100%;min-height:0;display:flex;align-items:center}
 /* --fs = base table text size; change with ?fs=16 etc. */
 :root{--fs:15px}
-table{border-collapse:collapse;width:100%;font-size:var(--fs)}
+table{border-collapse:collapse;width:100%;font-size:var(--fs);line-height:1.25}
 thead th{position:sticky;top:0;background:var(--bg);z-index:1}
 html.transparent thead th{background:transparent}
-th,td{padding:.3em .8em;border-bottom:1px solid var(--line);text-align:center;transition:background .3s}
+th,td{padding:.2em .8em;border-bottom:1px solid var(--line);text-align:center;transition:background .3s}
 th{font-weight:700;font-size:var(--fs);white-space:nowrap;color:var(--fg);border-bottom:2px solid var(--fg)}
 th:first-child,td:first-child{text-align:left}
 td:first-child{color:var(--muted);font-weight:700;white-space:nowrap}
@@ -66,7 +66,7 @@ tr.done td:first-child{color:var(--fg)}
 .plot-only .left{display:none}
 .plot-only .wrap{grid-template-columns:minmax(0,1fr)}
 
-@media (max-width:760px){
+@media (max-width:480px){
   html,body{height:auto}
   .wrap{grid-template-columns:1fr}
   .right{height:auto} svg{height:auto}
@@ -288,6 +288,25 @@ document.addEventListener("keydown", e => {
   else if (e.key === "r" || e.key === "R") act("reset");
   else if (e.key === "a" || e.key === "A") act("all");
 });
+
+const AVAIL_EL = () => document.querySelector(".left");
+/* ==================== fit table to the iframe height ==================== */
+// Unless ?fs= is given, shrink the text (max 15px, min 8px) until every row fits without scrolling.
+const FIXED_FS = parseFloat(P.get("fs")) > 0;
+function fitTable(){
+  if (FIXED_FS) return;
+  const box = AVAIL_EL(), tbl = document.getElementById("tbl");
+  if (!box || !box.clientHeight) return;
+  const set = v => document.documentElement.style.setProperty("--fs", v + "px");
+  let fs = 15; set(fs);
+  const avail = box.clientHeight;
+  if (tbl.offsetHeight > avail){
+    fs = Math.max(8, fs * avail / tbl.offsetHeight); set(fs);       // first guess
+    while (tbl.offsetHeight > avail && fs > 8){ fs -= .25; set(fs); } // then step down until it fits
+  }
+}
+window.addEventListener("resize", fitTable);
+fitTable();
 
 updateUI();
 // plays automatically on load; add ?autoplay=0 to start paused

@@ -22,10 +22,10 @@ body{display:flex;flex-direction:column;padding:16px;gap:12px}
 .tblwrap{flex:1;min-height:0;width:100%;overflow-y:auto;scrollbar-width:thin}
 /* --fs = base text size; change with ?fs=16 etc. */
 :root{--fs:15px}
-table{border-collapse:collapse;width:100%;font-size:var(--fs)}
+table{border-collapse:collapse;width:100%;font-size:var(--fs);line-height:1.25}
 thead th{position:sticky;top:0;background:var(--bg);z-index:1}
 html.transparent thead th{background:transparent}
-th,td{padding:.3em .8em;border-bottom:1px solid var(--line);text-align:center;transition:background .3s}
+th,td{padding:.2em .8em;border-bottom:1px solid var(--line);text-align:center;transition:background .3s}
 th{font-weight:700;font-size:var(--fs);white-space:nowrap;color:var(--fg);border-bottom:2px solid var(--fg)}
 th:first-child,td:first-child{text-align:left}
 td:first-child{color:var(--muted);font-weight:700;white-space:nowrap}
@@ -76,7 +76,8 @@ const theme = P.get("theme");
 if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches))
   document.documentElement.dataset.theme = "dark";
 if (P.get("bg") === "transparent") document.documentElement.classList.add("transparent");
-if (P.get("controls") === "0") document.getElementById("controls").classList.add("hidden");
+// buttons hidden by default; add ?controls=1 to show them
+if (P.get("controls") !== "1") document.getElementById("controls").classList.add("hidden");
 if (parseFloat(P.get("fs")) > 0) document.documentElement.style.setProperty("--fs", parseFloat(P.get("fs")) + "px");
 
 /* ==================== state ==================== */
@@ -174,6 +175,25 @@ document.addEventListener("keydown", e => {
   else if (e.key === "r" || e.key === "R") act("reset");
   else if (e.key === "a" || e.key === "A") act("all");
 });
+
+const AVAIL_EL = () => document.getElementById("tblwrap");
+/* ==================== fit table to the iframe height ==================== */
+// Unless ?fs= is given, shrink the text (max 15px, min 8px) until every row fits without scrolling.
+const FIXED_FS = parseFloat(P.get("fs")) > 0;
+function fitTable(){
+  if (FIXED_FS) return;
+  const box = AVAIL_EL(), tbl = document.getElementById("tbl");
+  if (!box || !box.clientHeight) return;
+  const set = v => document.documentElement.style.setProperty("--fs", v + "px");
+  let fs = 15; set(fs);
+  const avail = box.clientHeight;
+  if (tbl.offsetHeight > avail){
+    fs = Math.max(8, fs * avail / tbl.offsetHeight); set(fs);       // first guess
+    while (tbl.offsetHeight > avail && fs > 8){ fs -= .25; set(fs); } // then step down until it fits
+  }
+}
+window.addEventListener("resize", fitTable);
+fitTable();
 
 updateUI();
 if (bc) bc.postMessage({cmd:"hello"});   // ask a plot iframe (if any) for its current state
