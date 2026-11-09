@@ -39,6 +39,7 @@ td:first-child{color:var(--fg);font-weight:800;white-space:nowrap}
 td .sk{display:inline-block;width:2.4em;height:.55em;border-radius:.3em;background:var(--skel);
   vertical-align:middle;transition:background .3s}
 tbody tr{cursor:pointer}
+.passive tbody tr,.passive svg{cursor:default}
 tr.active td{background:var(--row)}
 tr.active td:first-child{color:var(--fg)}
 tr.active td .sk{background:var(--hi)}
@@ -283,14 +284,18 @@ function act(cmd, arg){ if (bc) bc.postMessage({cmd, arg}); ACTIONS[cmd](arg); }
 if (bc) bc.onmessage = e => { const f = e.data && ACTIONS[e.data.cmd]; if (f) f(e.data.arg); };
 
 /* ==================== wiring ==================== */
-rows.forEach((tr, i) => tr.addEventListener("click", () => act("place", i)));
+// Clicking and keyboard shortcuts are OFF by default, so selecting the iframe in the slides
+// editor never starts the animation; only controls.html does. Add ?interactive=1 to enable them.
+const INTERACTIVE = P.get("interactive") === "1";
+if (!INTERACTIVE) document.body.classList.add("passive");
+if (INTERACTIVE) rows.forEach((tr, i) => tr.addEventListener("click", () => act("place", i)));
 $("bPlay").addEventListener("click", () => act("setPlay", !playing));
 $("bNext").addEventListener("click", () => act("next"));
 $("bAll").addEventListener("click", () => act("all"));
 $("bReset").addEventListener("click", () => act("reset"));
 // click the plot: pause / resume; once finished, a click replays from the start
-$("plot").addEventListener("click", () => act("setPlay", !playing));
-document.addEventListener("keydown", e => {
+if (INTERACTIVE) $("plot").addEventListener("click", () => act("setPlay", !playing));
+if (INTERACTIVE) document.addEventListener("keydown", e => {
   if (e.key === "ArrowRight"){ e.preventDefault(); act("next"); }
   else if (e.key === " "){ e.preventDefault(); act("setPlay", !playing); }
   else if (e.key === "r" || e.key === "R") act("reset");
