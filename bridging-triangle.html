@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bridging Triangle</title>
+<style>
+:root{
+  --bg:#ffffff; --fg:#1f2328; --muted:#8a919a; --pt:#1f2328; --mesh:#d5d9de;
+  --bridge:#c2410c; --bridge-fill:rgba(194,65,12,.18);
+}
+:root[data-theme="dark"]{
+  --bg:#111418; --fg:#e6e8eb; --muted:#8b939c; --pt:#e6e8eb; --mesh:#3a4048;
+  --bridge:#ff8a4c; --bridge-fill:rgba(255,138,76,.25);
+}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--fg);
+  font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+html.transparent,html.transparent body{background:transparent}
+/* one SVG, so the picture scales as a whole; designed for 960 × 497 */
+svg{display:block;width:100%;height:100%}
+.axis{stroke:var(--muted);stroke-width:1.5;fill:none}
+.arrow{fill:var(--muted)}
+.axis-title{fill:var(--fg);font-size:18px;font-weight:800}
+.pt{fill:var(--pt)}
+.shape-fill{fill:#f6caa9;stroke:#f6caa9;stroke-width:.8;stroke-linejoin:round}
+.shape-edge{fill:none;stroke:#de8550;stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
+:root[data-theme="dark"] .shape-fill{fill:#7a4e33;stroke:#7a4e33}
+:root[data-theme="dark"] .shape-edge{stroke:#f0a46f}
+.bridge{fill:var(--bridge-fill);stroke:var(--bridge);stroke-width:2.5;stroke-linejoin:round}
+.cc-bridge{fill:none;stroke:var(--bridge);stroke-width:1.5;stroke-dasharray:6 5}
+.lab{font-size:17px;font-weight:800}
+.lab-b{fill:var(--bridge)}
+</style>
+</head>
+<body>
+<svg id="ov" viewBox="-135 0 960 497" preserveAspectRatio="xMidYMid meet"></svg>
+<script>
+(function(){
+"use strict";
+/* ============================================================
+   A bridging triangle inside an α-shape.
+
+   Two clusters; the α-shape underneath is the standard one (every Delaunay triangle with
+   circumradius ≤ α). One triangle that spans the gap between the clusters is highlighted with its
+   circumcircle: its circumradius is below α, so it is part of the shape and joins the two clusters.
+
+   Options: alpha=<number> (screen units, default ≈ 93) to draw a different α-shape;
+            theme=dark|auto, bg=transparent
+   Inspect: window.bridgeTriangle
+   ============================================================ */
+const P = new URLSearchParams(location.search);
+const root = document.documentElement;
+const theme = P.get("theme");
+if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)) root.dataset.theme = "dark";
+if (P.get("bg") === "transparent") root.classList.add("transparent");
+
+const NS = "http://www.w3.org/2000/svg", ov = document.getElementById("ov");
+function el(tag, attrs, parent){
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  (parent || ov).appendChild(e);
+  return e;
+}
+const f1 = v => v.toFixed(1);
+
+/* ==================== layout ==================== */
+const PLOT = {x0:60, x1:640, y0:450, y1:40};                  // plot box (y0 = bottom)
+
+/* ==================== geometry ==================== */
+const dist = (a, b) => Math.hypot(a[0]-b[0], a[1]-b[1]);
+function circum(a, b, c){
+  const d = 2*(a[0]*(b[1]-c[1]) + b[0]*(c[1]-a[1]) + c[0]*(a[1]-b[1]));
+  const a2 = a[0]*a[0]+a[1]*a[1], b2 = b[0]*b[0]+b[1]*b[1], c2 = c[0]*c[0]+c[1]*c[1];
+  const x = (a2*(b[1]-c[1]) + b2*(c[1]-a[1]) + c2*(a[1]-b[1])) / d;
+  const y = (a2*(c[0]-b[0]) + b2*(a[0]-c[0]) + c2*(b[0]-a[0])) / d;
+  return {x, y, r:Math.hypot(a[0]-x, a[1]-y)};
+}
+function describe(tri){
+  const e = [[0,1],[1,2],[2,0]].map(([i, j]) => ({i, j, len:dist(tri[i], tri[j])}));
+  const longest = e.reduce((m, x) => x.len > m.len ? x : m);
+  return {tri, cc:circum(...tri), longest};
+}
+
+/* ==================== points: two clusters ==================== */
+// deterministic pseudo-random scatter in a disc (same picture every load)
+function rng(seed){ return () => (seed = (seed * 16807) % 2147483647) / 2147483647; }
+function disc(cx, cy, r, n, seed, keepOut){
+  const rnd = rng(seed), out = [];
+  while (out.length < n){
+    const t = 2*Math.PI*rnd(), s = r*Math.sqrt(rnd()), p = [cx + s*Math.cos(t), cy + s*Math.sin(t)];
+    if (!keepOut(p) && out.every(q => dist(p, q) > 11)) out.push(p);
+  }
+  return out;
+}
+const LEFT = {cx:270, cy:245, r:75}, RIGHT = {cx:540, cy:245, r:75};
+
+// the two highlighted triangles (their vertices are cluster points)
+const BRIDGE = [[331, 202], [331, 288], [466, 245]];          // two on the left cluster's right edge, one on the right cluster's left edge
+const EDGE_PTS = [[200, 210], [207, 245], [200, 280]];        // three points on the left cluster's left edge (kept so the shape is unchanged)
+const bridge = describe(BRIDGE), edgeTri = describe(EDGE_PTS);   // edgeTri only fixes the default α and keeps scatter clear
+
+// keep scatter points outside these circumcircles, so the bridge is a genuine Delaunay triangle and the picture is as before
+const inside = (p, d) => dist(p, [d.cc.x, d.cc.y]) < d.cc.r + 4;   // strictly outside, with a margin
+const keep = p => inside(p, edgeTri) || inside(p, bridge) || [...BRIDGE, ...EDGE_PTS].some(q => dist(p, q) < 12);
+const pts = [...disc(LEFT.cx, LEFT.cy, LEFT.r, 38, 7, keep), ...disc(RIGHT.cx, RIGHT.cy, RIGHT.r, 38, 19, keep), ...BRIDGE, ...EDGE_PTS];
+
+/* ==================== α-shape (Delaunay, circumradius ≤ α) ==================== */
+function delaunay(pts){                                         // Bowyer–Watson
+  const BIG = 1e5, all = pts.concat([[-BIG, -BIG], [BIG*2, -BIG], [-BIG, BIG*2]]), n = pts.length;
+  let tris = [{v:[n, n+1, n+2], c:circum(all[n], all[n+1], all[n+2])}];
+  for (let i = 0; i < n; i++){
+    const p = all[i], bad = [], keep = [];
+    for (const t of tris) ((p[0]-t.c.x)**2 + (p[1]-t.c.y)**2 < t.c.r**2 ? bad : keep).push(t);
+    const edges = new Map();
+    for (const t of bad) for (let k = 0; k < 3; k++){
+      const a = t.v[k], b = t.v[(k+1)%3], key = a < b ? a+","+b : b+","+a;
+      edges.set(key, edges.has(key) ? null : [a, b]);
+    }
+    tris = keep;
+    for (const e of edges.values()) if (e) tris.push({v:[e[0], e[1], i], c:circum(all[e[0]], all[e[1]], p)});
+  }
+  return tris.filter(t => t.v.every(v => v < n));
+}
+const DT = delaunay(pts);
+const ALPHA = parseFloat(P.get("alpha")) || edgeTri.cc.r * 1.02;
+const KEPT = DT.filter(t => t.c.r <= ALPHA);
+// is the highlighted triangle really a Delaunay triangle of this point set?
+const idx = p => pts.findIndex(q => q[0] === p[0] && q[1] === p[1]);
+const sameTri = (t, tri) => { const v = tri.map(idx).sort((a, b) => a - b), w = t.v.slice().sort((a, b) => a - b); return v.every((x, k) => x === w[k]); };
+const bridgeIsDelaunay = DT.some(t => sameTri(t, BRIDGE));
+
+/* ==================== draw: plot ==================== */
+{
+  const g = el("g", {});
+  el("path", {d:`M${PLOT.x0},${PLOT.y1-6}V${PLOT.y0}H${PLOT.x1+6}`, class:"axis"}, g);
+  el("path", {d:`M${PLOT.x1+12},${PLOT.y0}l-9,-5v10z`, class:"arrow"}, g);
+  el("path", {d:`M${PLOT.x0},${PLOT.y1-12}l-5,9h10z`, class:"arrow"}, g);
+  el("text", {x:(PLOT.x0+PLOT.x1)/2, y:PLOT.y0+30, "text-anchor":"middle", class:"axis-title"}, g).textContent = "PC1";
+  el("text", {x:0, y:0, "text-anchor":"middle", class:"axis-title",
+    transform:`translate(${PLOT.x0-22},${(PLOT.y0+PLOT.y1)/2}) rotate(-90)`}, g).textContent = "PC2";
+}
+// α-shape: filled kept triangles + boundary edges
+{
+  const g = el("g", {});
+  el("path", {d:KEPT.map(t => "M" + t.v.map(i => f1(pts[i][0]) + "," + f1(pts[i][1])).join("L") + "Z").join(""), class:"shape-fill"}, g);
+  const cnt = new Map();
+  for (const t of KEPT) for (let k = 0; k < 3; k++){
+    const a = t.v[k], b = t.v[(k+1)%3], key = a < b ? a+","+b : b+","+a;
+    cnt.set(key, (cnt.get(key) || 0) + 1);
+  }
+  const bnd = [...cnt].filter(([, c]) => c === 1).map(([k]) => k.split(",").map(Number));
+  el("path", {d:bnd.map(([i, j]) => `M${f1(pts[i][0])},${f1(pts[i][1])}L${f1(pts[j][0])},${f1(pts[j][1])}`).join(""), class:"shape-edge"}, g);
+}
+// the bridging triangle and its circumcircle
+el("circle", {cx:f1(bridge.cc.x), cy:f1(bridge.cc.y), r:f1(bridge.cc.r), class:"cc-bridge"});
+el("path", {d:"M" + BRIDGE.map(p => f1(p[0]) + "," + f1(p[1])).join("L") + "Z", class:"bridge"});
+{
+  const g = el("g", {});
+  pts.forEach(p => el("circle", {cx:f1(p[0]), cy:f1(p[1]), r:3, class:"pt"}, g));
+}
+el("text", {x:f1(bridge.cc.x), y:f1(bridge.cc.y + bridge.cc.r + 24), "text-anchor":"middle", class:"lab lab-b"}).textContent = "bridge";
+
+window.bridgeTriangle = {bridge, pts, alpha:ALPHA, kept:KEPT, bridgeIsDelaunay};
+})();
+</script>
+</body>
+</html>
