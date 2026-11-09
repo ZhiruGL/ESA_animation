@@ -4,75 +4,103 @@
 <style>
 :root{--ink:#1f1f1f;--muted:#5c5c5c;--paper:#fff;--alpha:#4682b4;--loc:#262626;--locfill:#e2e2e2;--glob:#c26a1b;--globfill:#f6e9da}
 *{box-sizing:border-box}
-body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.45 -apple-system,"Helvetica Neue",Arial,sans-serif}
-main{max-width:820px;margin:0 auto;padding:28px 16px 36px}
-.top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;margin-bottom:6px}
-h1{font-size:26px;margin:0}
-.switch{display:inline-flex;align-items:center;gap:12px;font-weight:600;cursor:pointer;user-select:none;border:0;background:none;font:inherit;color:inherit;padding:0}
-.switch .lbl{opacity:.4;transition:opacity .2s}
-.switch .lbl.on{opacity:1}
-.track{width:54px;height:30px;border-radius:15px;background:var(--loc);position:relative;transition:background .25s}
-.track::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:transform .25s}
-.switch[aria-checked=true] .track{background:var(--glob)}
-.switch[aria-checked=true] .track::after{transform:translateX(24px)}
-.switch:focus-visible .track{outline:2px solid var(--alpha);outline-offset:2px}
-.readout{margin:4px 0 6px}
-.readout .v{font-size:34px;font-weight:700}
-.readout .eq{color:var(--muted)}
-svg{width:100%;height:auto;display:block}
-svg .fade{transition:opacity .35s}
-.key{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:14px;color:var(--muted);margin-top:6px}
-.key span{display:inline-flex;align-items:center;gap:7px}
-.sw{width:22px;height:13px;display:inline-block;border-radius:2px}
-.dot{width:9px;height:9px;border-radius:50%;display:inline-block}
-</style></head><body><main>
-<div class="top">
-  <h1>Occupancy at 1500 m</h1>
-  <button class="switch" role="switch" aria-checked="false" id="sw">
-    <span class="lbl on" id="ll">Local</span><span class="track"></span><span class="lbl" id="lg">Global</span>
-  </button>
-</div>
-<div class="readout"><span class="v" id="v"></span> <span class="eq" id="eq"></span></div>
-<svg id="plot" viewBox="0 0 800 700" role="img" aria-label="Alpha shape of the 1500 m bat community with its local or global convex hull"></svg>
-<div class="key">
-  <span><i class="sw" style="background:var(--alpha)"></i>α-shape</span>
-  <span id="k"></span>
-  <span>✕ dropped by the MST rule</span>
-</div>
-</main>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--paper);color:var(--ink);font-family:-apple-system,"Helvetica Neue",Arial,sans-serif}
+html.transparent,html.transparent body{background:transparent}
+/* one SVG (plot, switch, readout and key), so the whole slide scales as a picture; designed for 960 × 497 */
+svg{display:block;width:100%;height:100%;user-select:none}
+.fade{transition:opacity .35s}
+.title{font-size:26px;font-weight:700;fill:var(--ink)}
+.lbl{font-size:18px;font-weight:600;fill:var(--ink);opacity:.4;transition:opacity .2s;cursor:pointer}
+.lbl.on{opacity:1}
+.sw{cursor:pointer;outline:none}
+.sw .track{fill:var(--loc);transition:fill .25s}
+.sw.on .track{fill:var(--glob)}
+.sw .knob{fill:#fff;transition:transform .25s}
+.sw.on .knob{transform:translateX(24px)}
+.sw:focus-visible .track{stroke:var(--alpha);stroke-width:2}
+.big{font-size:30px;font-weight:700;fill:var(--ink)}
+.eq{font-size:17px;fill:var(--muted)}
+.key{font-size:15px;fill:var(--muted)}
+</style></head><body>
+<svg id="plot" viewBox="0 0 960 497" preserveAspectRatio="xMidYMid meet" role="img"
+     aria-label="Alpha shape of the 1500 m bat community with its local or global convex hull"></svg>
 <script>
+/* Slide version of bat_occupancy_toggle.html: same data and switch, laid out for a 960 × 497 frame.
+   Left: the trait space (α-shape in blue; local hull, or the regional pool and its hull).
+   Right: title, Local ⟷ Global switch, occupancy readout and key.
+   Options: ?state=global (open on Global), ?bg=transparent */
 const D = {"pool": {"Cormura brevirostris": [-0.25379, 0.05845, "AI"], "Peropteryx kappleri": [-0.28445, 0.00152, "AI"], "Peropteryx leucoptera": [-0.2827, 0.02406, "AI"], "Rhynchonycteris naso": [-0.30984, -0.05597, "AI"], "Saccopteryx bilineata": [-0.23083, -0.06844, "AI"], "Saccopteryx leptura": [-0.27089, -0.03468, "AI"], "Furipterus horrens": [-0.30136, -0.07843, "AI"], "Molossus molossus": [-0.30537, 0.05396, "AI"], "Molossus rufus": [-0.37766, 0.08497, "AI"], "Nyctinomops laticaudatus": [-0.2896, 0.04699, "AI"], "Tadarida brasiliensis": [-0.29668, 0.03853, "AI"], "Noctilio albiventris": [-0.09285, 0.11914, "AI"], "Noctilio leporinus": [-0.16539, 0.29609, "GO"], "Anoura caudifer": [0.04866, -0.14351, "N"], "Anoura cultrata": [0.06224, -0.14027, "N"], "Anoura geoffroyi": [-0.04531, -0.14414, "N"], "Anoura nsp": [0.0514, -0.13786, "N"], "Artibeus lituratus": [0.14298, 0.17338, "CF"], "Artibeus obscurus": [0.19209, -0.01225, "UF"], "Artibeus planirostris": [0.12802, 0.16077, "CF"], "Carollia benkeithi": [0.14209, -0.0346, "UF"], "Carollia brevicauda": [0.15454, -0.02921, "UF"], "Carollia manu": [0.15108, -0.01934, "UF"], "Carollia perspicillata": [0.09098, -0.06426, "UF"], "Chiroderma salvini": [0.17587, 0.10241, "CF"], "Chiroderma trinitatum": [0.15454, 0.09111, "CF"], "Chiroderma villosum": [0.17219, 0.10029, "CF"], "Choeroniscus minor": [0.03789, -0.16448, "N"], "Chrotopterus auritus": [0.21898, -0.11025, "GO"], "Dermanura anderseni": [0.15282, 0.10076, "CF"], "Dermanura glauca": [0.14973, 0.07509, "CF"], "Dermanura gnoma": [0.05407, 0.06784, "CF"], "Desmodus rotundus": [-0.06761, 0.33891, "S"], "Diphylla ecaudata": [-0.04931, 0.36279, "S"], "Enchisthenes hartii": [0.21071, 0.09438, "CF"], "Glossophaga commissarisi": [0.0416, -0.14509, "N"], "Glossophaga soricina": [-0.00965, -0.12724, "N"], "Glyphonycteris daviesi": [0.07217, 0.01734, "GO"], "Lampronycteris brachyotis": [0.0576, -0.03302, "GO"], "Lichonycteris obscura": [-0.00565, -0.14856, "N"], "Lionycteris spurrelli": [0.01601, -0.2981, "N"], "Lonchophylla handleyi": [0.06057, -0.14731, "N"], "Lonchophylla thomasi": [0.00966, -0.3051, "N"], "Lonchorhina aurita": [0.03271, -0.00183, "GO"], "Lophostoma brasiliense": [0.022, -0.03956, "GO"], "Lophostoma carrikeri": [0.0325, -0.01129, "GO"], "Lophostoma silvicolum": [0.115, -0.07896, "GO"], "Macrophyllum macrophyllum": [-0.166, -0.02464, "GO"], "Mesophylla macconnelli": [0.09804, 0.0954, "CF"], "Micronycteris hirsuta": [0.02829, -0.0131, "GO"], "Micronycteris megalotis": [0.06781, -0.06225, "GO"], "Micronycteris minuta": [0.07236, -0.07867, "GO"], "Micronycteris schmidtorum": [0.05922, -0.05573, "GO"], "Mimon crenulatum": [-0.03918, -0.00617, "GO"], "Phylloderma stenops": [0.13847, 0.16073, "GO"], "Phyllostomus elongatus": [0.13397, -0.08952, "GO"], "Phyllostomus hastatus": [0.25287, 0.22386, "GO"], "Platyrrhinus albericoi": [0.23548, 0.13013, "CF"], "Platyrrhinus brachycephalus": [0.15439, 0.09231, "CF"], "Platyrrhinus helleri": [0.06936, 0.0759, "CF"], "Platyrrhinus infuscus": [0.19813, 0.11429, "CF"], "Platyrrhinus masu": [0.18318, 0.10286, "CF"], "Platyrrhinus nigellus": [0.16843, 0.09301, "CF"], "Rhinophylla pumilio": [0.13245, -0.08402, "UF"], "Sphaeronycteris toxophyllum": [0.19348, -0.02321, "UF"], "Sturnira erythromos": [0.15234, 0.02584, "UF"], "Sturnira lilium": [0.08417, -0.00624, "UF"], "Sturnira magna": [0.19581, -0.00982, "UF"], "Sturnira oporaphilum": [0.15588, -0.01804, "UF"], "Sturnira tildae": [0.16147, -0.01853, "UF"], "Tonatia saurophila": [0.11467, -0.06665, "GO"], "Trachops cirrhosus": [0.20434, -0.09741, "GO"], "Uroderma bilobatum": [0.08872, -0.0655, "UF"], "Uroderma magnirostrum": [0.15004, -0.02125, "UF"], "Vampyressa melissa": [0.14644, -0.02347, "UF"], "Vampyressa thyone": [0.14787, -0.035, "UF"], "Vampyriscus bidens": [0.14588, -0.02635, "UF"], "Vampyrodes caraccioli": [0.19625, 0.12103, "CF"], "Vampyrum spectrum": [0.34673, -0.1656, "GO"], "Thyroptera lavali": [-0.24404, -0.0815, "AI"], "Thyroptera tricolor": [-0.20377, -0.10553, "AI"], "Eptesicus brasiliensis": [-0.27048, 0.01548, "AI"], "Eptesicus chiriquinus": [-0.2804, 0.03721, "AI"], "Eptesicus furinalis": [-0.29426, 0.00686, "AI"], "Lasiurus blossevillii": [-0.29293, 0.03292, "AI"], "Lasiurus ega": [-0.27198, 0.04384, "AI"], "Myotis albescens": [-0.28963, -0.00879, "AI"], "Myotis keaysi": [-0.30824, -0.00806, "AI"], "Myotis nigricans": [-0.21955, 0.00974, "AI"], "Myotis oxyotus": [-0.30217, -0.0165, "AI"], "Myotis riparius": [-0.30396, -0.00957, "AI"], "Myotis simus": [-0.30171, 0.00467, "AI"]}, "band": {"n": 26, "alpha": 0.03169, "lhull": 0.11298, "ghull": 0.308778, "species": ["Myotis keaysi", "Dermanura glauca", "Platyrrhinus masu", "Enchisthenes hartii", "Micronycteris megalotis", "Chiroderma salvini", "Anoura caudifer", "Sturnira magna", "Platyrrhinus nigellus", "Carollia brevicauda", "Sturnira lilium", "Myotis riparius", "Mesophylla macconnelli", "Platyrrhinus helleri", "Platyrrhinus infuscus", "Mimon crenulatum", "Lonchophylla thomasi", "Carollia perspicillata", "Sturnira oporaphilum", "Anoura geoffroyi", "Eptesicus furinalis", "Anoura cultrata", "Sturnira erythromos", "Vampyressa melissa", "Platyrrhinus albericoi", "Carollia manu"], "dropped": ["Lonchophylla thomasi"], "tri": [[-0.30396, -0.00957, -0.29426, 0.00686, -0.30824, -0.00806], [0.15234, 0.02584, 0.06936, 0.0759, 0.09804, 0.0954], [0.17587, 0.10241, 0.19813, 0.11429, 0.18318, 0.10286], [0.06224, -0.14027, 0.06781, -0.06225, 0.09098, -0.06426], [0.08417, -0.00624, 0.15234, 0.02584, 0.06936, 0.0759], [0.08417, -0.00624, 0.06936, 0.0759, -0.03918, -0.00617], [0.08417, -0.00624, 0.06781, -0.06225, -0.03918, -0.00617], [0.08417, -0.00624, 0.06781, -0.06225, 0.09098, -0.06426], [0.14973, 0.07509, 0.15234, 0.02584, 0.09804, 0.0954], [0.04866, -0.14351, 0.06781, -0.06225, -0.04531, -0.14414], [0.04866, -0.14351, 0.06224, -0.14027, 0.06781, -0.06225], [0.14644, -0.02347, 0.08417, -0.00624, 0.09098, -0.06426], [0.14644, -0.02347, 0.08417, -0.00624, 0.15234, 0.02584], [0.21071, 0.09438, 0.19581, -0.00982, 0.15234, 0.02584], [0.21071, 0.09438, 0.19813, 0.11429, 0.18318, 0.10286], [0.21071, 0.09438, 0.19813, 0.11429, 0.23548, 0.13013], [0.16843, 0.09301, 0.17587, 0.10241, 0.18318, 0.10286], [0.16843, 0.09301, 0.21071, 0.09438, 0.18318, 0.10286], [0.16843, 0.09301, 0.17587, 0.10241, 0.09804, 0.0954], [0.16843, 0.09301, 0.14973, 0.07509, 0.09804, 0.0954], [0.16843, 0.09301, 0.14973, 0.07509, 0.15234, 0.02584], [0.16843, 0.09301, 0.21071, 0.09438, 0.15234, 0.02584], [0.15588, -0.01804, 0.19581, -0.00982, 0.15234, 0.02584], [0.15454, -0.02921, 0.14644, -0.02347, 0.09098, -0.06426], [0.15454, -0.02921, 0.15588, -0.01804, 0.19581, -0.00982], [0.15108, -0.01934, 0.14644, -0.02347, 0.15234, 0.02584], [0.15108, -0.01934, 0.15588, -0.01804, 0.15234, 0.02584], [0.15108, -0.01934, 0.15454, -0.02921, 0.14644, -0.02347], [0.15108, -0.01934, 0.15454, -0.02921, 0.15588, -0.01804]]}}, P = D.pool, B = D.band, names = Object.keys(P);
-const xs = names.map(n=>P[n][0]), ys = names.map(n=>P[n][1]), pad = 0.06;
+const Q = new URLSearchParams(location.search);
+if (Q.get("bg") === "transparent") document.documentElement.classList.add("transparent");
+const NS = "http://www.w3.org/2000/svg", svg = document.getElementById("plot");
+function el(tag, attrs, parent, text){
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  (parent || svg).appendChild(e); return e;
+}
+
+/* ---- plot area (left) ---- */
+const PL = {x:16, y:12, w:560, h:473};
+const xs = names.map(n=>P[n][0]), ys = names.map(n=>P[n][1]), pad = 0.03;
 const x0=Math.min(...xs)-pad, x1=Math.max(...xs)+pad, y0=Math.min(...ys)-pad, y1=Math.max(...ys)+pad;
-const W=800, H=700, s=Math.min(W/(x1-x0),H/(y1-y0)), ox=(W-(x1-x0)*s)/2, oy=(H-(y1-y0)*s)/2;
-const X=x=>ox+(x-x0)*s, Y=y=>H-oy-(y-y0)*s;
+const s=Math.min(PL.w/(x1-x0), PL.h/(y1-y0)), ox=PL.x+(PL.w-(x1-x0)*s)/2, oy=PL.y+(PL.h-(y1-y0)*s)/2;
+const X=x=>ox+(x-x0)*s, Y=y=>oy+(y1-y)*s;
 function hull(pts){const p=pts.slice().sort((a,b)=>a[0]-b[0]||a[1]-b[1]);const cr=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);const lo=[],up=[];
  for(const q of p){while(lo.length>=2&&cr(lo[lo.length-2],lo[lo.length-1],q)<=0)lo.pop();lo.push(q)}
  for(const q of p.slice().reverse()){while(up.length>=2&&cr(up[up.length-2],up[up.length-1],q)<=0)up.pop();up.push(q)}
  return lo.slice(0,-1).concat(up.slice(0,-1));}
 const poly=pts=>pts.map(p=>X(p[0]).toFixed(1)+","+Y(p[1]).toFixed(1)).join(" ");
 const inBand=new Set(B.species), drop=new Set(B.dropped);
-let h=`<g id="G" class="fade"><polygon points="${poly(hull(names.map(n=>[P[n][0],P[n][1]])))}" fill="var(--globfill)" stroke="var(--glob)" stroke-width="2" stroke-dasharray="7 5"/>`;
-for(const n of names) if(!inBand.has(n)) h+=`<circle cx="${X(P[n][0])}" cy="${Y(P[n][1])}" r="5" fill="var(--glob)"><title>${n}</title></circle>`;
-h+=`</g><g id="L" class="fade"><polygon points="${poly(hull(B.species.map(n=>[P[n][0],P[n][1]])))}" fill="var(--locfill)" stroke="var(--loc)" stroke-width="2" stroke-dasharray="7 5"/></g>`;
-for(const t of B.tri) h+=`<polygon points="${poly([[t[0],t[1]],[t[2],t[3]],[t[4],t[5]]])}" fill="var(--alpha)" stroke="var(--alpha)" stroke-width="0.8"/>`;
-for(const n of B.species){const cx=X(P[n][0]),cy=Y(P[n][1]);
- h+=drop.has(n)?`<path d="M${cx-7},${cy-7}L${cx+7},${cy+7}M${cx-7},${cy+7}L${cx+7},${cy-7}" stroke="var(--loc)" stroke-width="2.2"><title>${n}</title></path>`
-               :`<circle cx="${cx}" cy="${cy}" r="6" fill="var(--loc)"><title>${n}</title></circle>`;}
-const svg=document.getElementById("plot"); svg.innerHTML=h;
-const G=document.getElementById("G"), L=document.getElementById("L"), sw=document.getElementById("sw");
+
+const G = el("g", {class:"fade"});
+el("polygon", {points:poly(hull(names.map(n=>[P[n][0],P[n][1]]))), fill:"var(--globfill)", stroke:"var(--glob)", "stroke-width":2, "stroke-dasharray":"7 5"}, G);
+for (const n of names) if (!inBand.has(n)) el("title", {}, el("circle", {cx:X(P[n][0]), cy:Y(P[n][1]), r:4.5, fill:"var(--glob)"}, G), n);
+const L = el("g", {class:"fade"});
+el("polygon", {points:poly(hull(B.species.map(n=>[P[n][0],P[n][1]]))), fill:"var(--locfill)", stroke:"var(--loc)", "stroke-width":2, "stroke-dasharray":"7 5"}, L);
+for (const t of B.tri) el("polygon", {points:poly([[t[0],t[1]],[t[2],t[3]],[t[4],t[5]]]), fill:"var(--alpha)", stroke:"var(--alpha)", "stroke-width":0.8});
+for (const n of B.species){ const cx=X(P[n][0]), cy=Y(P[n][1]);
+  if (drop.has(n)) el("title", {}, el("path", {d:`M${cx-6},${cy-6}L${cx+6},${cy+6}M${cx-6},${cy+6}L${cx+6},${cy-6}`, stroke:"var(--loc)", "stroke-width":2.2}), n);
+  else el("title", {}, el("circle", {cx, cy, r:5, fill:"var(--loc)"}), n); }
+
+/* ---- text column (right) ---- */
+const RX = 612;
+el("text", {x:RX, y:62, class:"title"}, null, "Occupancy at 1500 m");
+const ll = el("text", {x:RX, y:120, class:"lbl on", "dominant-baseline":"central"}, null, "Local");
+const swG = el("g", {class:"sw", role:"switch", tabindex:0, "aria-checked":"false", "aria-label":"Switch between local and global occupancy", transform:`translate(${RX+62},105)`});
+el("rect", {width:54, height:30, rx:15, class:"track"}, swG);
+el("circle", {cx:15, cy:15, r:12, class:"knob"}, swG);
+const lg = el("text", {x:RX+130, y:120, class:"lbl", "dominant-baseline":"central"}, null, "Global");
+const big1 = el("text", {x:RX, y:200, class:"big"});
+const big2 = el("text", {x:RX, y:240, class:"big"});
+const eq = el("text", {x:RX, y:272, class:"eq"});
+// key
+const K = el("g", {transform:`translate(${RX},330)`});
+el("rect", {x:0, y:-11, width:22, height:13, rx:2, fill:"var(--alpha)"}, K); el("text", {x:32, y:0, class:"key"}, K, "α-shape");
+const hullKey = el("g", {transform:"translate(0,32)"}, K);
+const hk1 = el("rect", {x:0, y:-11, width:22, height:13, rx:2, "stroke-width":1.5, "stroke-dasharray":"4 3"}, hullKey);
+const hkDot = el("circle", {cx:34, cy:-4.5, r:4.5, fill:"var(--glob)"}, hullKey);
+const hkText = el("text", {x:32, y:0, class:"key"}, hullKey);
+const dk = el("g", {transform:"translate(0,64)"}, K);
+el("path", {d:"M5,-10L17,2M5,2L17,-10", stroke:"var(--loc)", "stroke-width":2.2}, dk);
+el("text", {x:32, y:0, class:"key"}, dk, "dropped by the MST rule");
+
 function set(global){
-  sw.setAttribute("aria-checked", global);
+  swG.classList.toggle("on", global); swG.setAttribute("aria-checked", global);
   G.style.opacity = global?1:0; L.style.opacity = global?0:1;
-  document.getElementById("ll").classList.toggle("on",!global);
-  document.getElementById("lg").classList.toggle("on",global);
+  ll.classList.toggle("on", !global); lg.classList.toggle("on", global);
   const den = global?B.ghull:B.lhull;
-  document.getElementById("v").textContent = (global?"Global":"Local")+" occupancy = "+(100*B.alpha/den).toFixed(1)+"%";
-  document.getElementById("eq").textContent = `(${B.alpha.toFixed(3)} ÷ ${den.toFixed(3)})`;
-  document.getElementById("k").innerHTML = global
-    ? '<i class="sw" style="background:var(--globfill);border:1.5px dashed var(--glob)"></i><i class="dot" style="background:var(--glob)"></i>regional pool and its hull'
-    : '<i class="sw" style="background:var(--locfill);border:1.5px dashed var(--loc)"></i>hull of the 1500 m species';
+  big1.textContent = (global?"Global":"Local") + " occupancy";
+  big2.textContent = "= " + (100*B.alpha/den).toFixed(1) + "%";
+  eq.textContent = `(${B.alpha.toFixed(3)} ÷ ${den.toFixed(3)})`;
+  hk1.setAttribute("fill", global?"var(--globfill)":"var(--locfill)"); hk1.setAttribute("stroke", global?"var(--glob)":"var(--loc)");
+  hkDot.style.display = global?"":"none";
+  hkText.setAttribute("x", global?46:32);
+  hkText.textContent = global ? "regional pool and its hull" : "hull of the 1500 m species";
 }
-sw.addEventListener("click",()=>set(sw.getAttribute("aria-checked")!=="true"));
-set(false);
+const toggle = () => set(swG.getAttribute("aria-checked") !== "true");
+swG.addEventListener("click", toggle);
+swG.addEventListener("keydown", e => { if (e.key===" "||e.key==="Enter"){ e.preventDefault(); toggle(); } });
+ll.addEventListener("click", () => set(false)); lg.addEventListener("click", () => set(true));
+set(Q.get("state") === "global");
 </script></body></html>
