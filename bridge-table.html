@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bridge Table</title>
+<style>
+:root{
+  --bg:#ffffff; --fg:#1f2328; --muted:#8a919a; --rule:#d5d9de;
+  --bridge:#c2410c; --sliver:#1d9e75;
+}
+:root[data-theme="dark"]{
+  --bg:#111418; --fg:#e6e8eb; --muted:#8b939c; --rule:#3a4048;
+  --bridge:#ff8a4c; --sliver:#5dcaa5;
+}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--fg);
+  font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+html.transparent,html.transparent body{background:transparent}
+/* one SVG, so the table scales as a picture to whatever box it is embedded in (designed for 300 × 160) */
+svg{display:block;width:100%;height:100%}
+.th{fill:var(--muted);font-size:16px;font-weight:700}
+.td{fill:var(--fg);font-size:19px;font-weight:700;font-variant-numeric:tabular-nums}
+.td.b{fill:var(--bridge)} .td.s{fill:var(--sliver)}
+.rule{stroke:var(--rule);stroke-width:1}
+</style>
+</head>
+<body>
+<svg id="ov" viewBox="0 0 300 160" preserveAspectRatio="xMidYMid meet"></svg>
+<script>
+(function(){
+"use strict";
+/* ============================================================
+   Companion table for bridging-triangle.html, to show on its own.
+
+   Circumradius and longest edge of the bridging triangle and of the thin triangle on the left
+   cluster's left edge, computed from the same vertex coordinates as bridging-triangle.html
+   (screen units, so the numbers match that figure).
+
+   Options: theme=dark|auto, bg=transparent
+   ============================================================ */
+const P = new URLSearchParams(location.search);
+const root = document.documentElement;
+const theme = P.get("theme");
+if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)) root.dataset.theme = "dark";
+if (P.get("bg") === "transparent") root.classList.add("transparent");
+
+/* same vertices as bridging-triangle.html */
+const BRIDGE = [[331, 202], [331, 288], [466, 245]];
+const SLIVER = [[200, 210], [207, 245], [200, 280]];
+
+const dist = (a, b) => Math.hypot(a[0]-b[0], a[1]-b[1]);
+function circumradius(a, b, c){
+  const d = 2*(a[0]*(b[1]-c[1]) + b[0]*(c[1]-a[1]) + c[0]*(a[1]-b[1]));
+  const a2 = a[0]*a[0]+a[1]*a[1], b2 = b[0]*b[0]+b[1]*b[1], c2 = c[0]*c[0]+c[1]*c[1];
+  const x = (a2*(b[1]-c[1]) + b2*(c[1]-a[1]) + c2*(a[1]-b[1])) / d;
+  const y = (a2*(c[0]-b[0]) + b2*(a[0]-c[0]) + c2*(b[0]-a[0])) / d;
+  return Math.hypot(a[0]-x, a[1]-y);
+}
+const longestEdge = t => Math.max(dist(t[0], t[1]), dist(t[1], t[2]), dist(t[2], t[0]));
+
+const NS = "http://www.w3.org/2000/svg", ov = document.getElementById("ov");
+function text(x, y, cls, str, anchor){
+  const e = document.createElementNS(NS, "text");
+  e.setAttribute("x", x); e.setAttribute("y", y); e.setAttribute("class", cls);
+  if (anchor) e.setAttribute("text-anchor", anchor);
+  e.textContent = str; ov.appendChild(e); return e;
+}
+const C = {x:16, c1:210, c2:284, y:34};
+text(C.c1, C.y, "th", "bridge", "end");
+text(C.c2, C.y, "th", "sliver", "end");
+{
+  const r = document.createElementNS(NS, "line");
+  r.setAttribute("x1", C.x); r.setAttribute("x2", C.c2); r.setAttribute("y1", C.y + 12); r.setAttribute("y2", C.y + 12);
+  r.setAttribute("class", "rule"); ov.appendChild(r);
+}
+const rows = [
+  ["Circumradius", circumradius(...BRIDGE), circumradius(...SLIVER)],
+  ["Longest edge", longestEdge(BRIDGE), longestEdge(SLIVER)],
+];
+rows.forEach(([name, b, s], k) => {
+  const y = C.y + 50 + k*46;
+  text(C.x, y, "td", name);
+  text(C.c1, y, "td b", String(Math.round(b)), "end");
+  text(C.c2, y, "td s", String(Math.round(s)), "end");
+});
+window.bridgeTable = {rows};
+})();
+</script>
+</body>
+</html>
