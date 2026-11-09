@@ -7,11 +7,11 @@
 <style>
 :root{
   --bg:#ffffff; --fg:#1f2328; --muted:#8a919a; --line:#e8eaed;
-  --pt:#1f2328; --hull:#2563eb; --hull-fill:rgba(37,99,235,.10); --cell:37,99,235;
+  --pt:#1f2328; --hull:#2563eb; --hull-fill:rgba(37,99,235,.10); --ghost:#9aa3ad;
 }
 :root[data-theme="dark"]{
   --bg:#111418; --fg:#e6e8eb; --muted:#8b939c; --line:#262b31;
-  --pt:#e6e8eb; --hull:#60a5fa; --hull-fill:rgba(96,165,250,.14); --cell:96,165,250;
+  --pt:#e6e8eb; --hull:#60a5fa; --hull-fill:rgba(96,165,250,.14); --ghost:#5b636d;
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
@@ -21,38 +21,29 @@ body{display:flex;padding:12px 16px;gap:28px}
 .panel{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center}
 .panel.hidden{display:none}
 h2{margin:0;font-size:var(--tfs,22px);font-weight:800;letter-spacing:-.01em}
-.sub{margin:2px 0 4px;font-size:calc(var(--tfs,22px)*.62);color:var(--muted);font-weight:600}
+.sub{margin:2px 0 4px;font-size:calc(var(--tfs,22px)*.62);color:var(--muted);font-weight:600;text-align:center}
 svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
 
 .axis{stroke:var(--muted);stroke-width:1.5;fill:none}
 .arrow{fill:var(--muted)}
 .axis-title{fill:var(--fg);font-size:var(--afs,20px);font-weight:800}
 .pt{fill:var(--pt);stroke:var(--bg);stroke-width:1.5}
-
-/* magnitude: convex hull */
-.hull{fill:var(--hull-fill);stroke:var(--hull);stroke-width:2.5;stroke-linejoin:round;
-  fill-opacity:0;transition:fill-opacity .6s ease}
-.hull.drawn{fill-opacity:1}
-
-/* variation: Voronoi cells inside the hull */
-.cell{stroke:rgb(var(--cell));stroke-width:1.2;stroke-linejoin:round;opacity:0;
-  transform-box:fill-box;transform-origin:center;transform:scale(.6);
-  transition:opacity .35s ease,transform .45s cubic-bezier(.3,1.4,.5,1)}
-.cell.on{opacity:1;transform:scale(1)}
-.outline{fill:none;stroke:var(--hull);stroke-width:2.5;stroke-linejoin:round;opacity:0;transition:opacity .4s}
-.outline.on{opacity:1}
+.hull{fill:var(--hull-fill);stroke:var(--hull);stroke-width:2.5;stroke-linejoin:round}
+.ghost{fill:none;stroke:var(--ghost);stroke-width:1.5;stroke-dasharray:5 5}
+.readout{fill:var(--muted);font-size:var(--rfs,15px);font-weight:700;font-variant-numeric:tabular-nums}
+.readout tspan.val{fill:var(--hull)}
 </style>
 </head>
 <body>
   <section class="panel" id="pMag">
     <h2>Magnitude</h2>
-    <div class="sub">how much trait space is occupied</div>
-    <svg id="svgMag" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Magnitude: convex hull"></svg>
+    <div class="sub">species spread out or pull in, so the occupied space changes</div>
+    <svg id="svgMag" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Magnitude: hull changes as species move"></svg>
   </section>
   <section class="panel" id="pVar">
     <h2>Variation</h2>
-    <div class="sub">how species are distributed within it</div>
-    <svg id="svgVar" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Variation: Voronoi cells"></svg>
+    <div class="sub">same occupied space, species rearranged inside it</div>
+    <svg id="svgVar" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Variation: same hull, interior species move"></svg>
   </section>
 
 <script>
@@ -61,10 +52,11 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
 /* ============================================================
    Options
      panel=magnitude | variation | both (default both)
-     show=1        draw hull + cells immediately (no Play needed)
      channel=...   shared with controls.html (default "magvar")
-     n, seed, shape, gap  — must match traits-to-traitspace.html to get the same points
-     afs / tfs     axis-label / title font size in px
+     n, seed, shape, gap — must match traits-to-traitspace.html to get the same points
+     speed         animation speed multiplier
+     area=0        hide the hull-area readout
+     afs / tfs / rfs   axis-label / title / readout font size (px)
      theme, bg=transparent
    ============================================================ */
 const P = new URLSearchParams(location.search);
@@ -73,13 +65,13 @@ const SEED = parseInt(P.get("seed")) || 7;
 const SHAPE = P.get("shape") || "round";
 const MIN_GAP = parseFloat(P.get("gap")) || 30;
 const SPEED = Math.max(.25, Math.min(4, parseFloat(P.get("speed")) || 1));
+const SHOW_AREA = P.get("area") !== "0";
 
 const root = document.documentElement;
 const theme = P.get("theme");
 if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)) root.dataset.theme = "dark";
 if (P.get("bg") === "transparent") root.classList.add("transparent");
-if (parseFloat(P.get("afs")) > 0) root.style.setProperty("--afs", parseFloat(P.get("afs")) + "px");
-if (parseFloat(P.get("tfs")) > 0) root.style.setProperty("--tfs", parseFloat(P.get("tfs")) + "px");
+for (const k of ["afs", "tfs", "rfs"]) if (parseFloat(P.get(k)) > 0) root.style.setProperty("--" + k, parseFloat(P.get(k)) + "px");
 const PANEL = (P.get("panel") || "both").toLowerCase();
 if (PANEL.startsWith("mag")) document.getElementById("pVar").classList.add("hidden");
 if (PANEL.startsWith("var")) document.getElementById("pMag").classList.add("hidden");
@@ -110,51 +102,56 @@ const PTS = [];
     else if (++tries > 2000){ gap *= .95; tries = 0; }
   }
 }
-const XY = PTS.map(p => [x0 + p.u*(x1 - x0), y0 - p.v*(y0 - y1)]);   // screen coords
+const BASE = PTS.map(p => [x0 + p.u*(x1 - x0), y0 - p.v*(y0 - y1)]);   // screen coords
 
 /* ==================== geometry helpers ==================== */
 const cross = (o, a, b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
-
-// convex hull, Andrew's monotone chain
-function convexHull(pts){
-  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+// convex hull (Andrew's monotone chain); returns indices into pts
+function hullIdx(pts){
+  const idx = pts.map((_, i) => i).sort((a, b) => pts[a][0] - pts[b][0] || pts[a][1] - pts[b][1]);
   const lower = [], upper = [];
-  for (const q of p){ while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], q) <= 0) lower.pop(); lower.push(q); }
-  for (let i = p.length - 1; i >= 0; i--){ const q = p[i]; while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], q) <= 0) upper.pop(); upper.push(q); }
+  for (const i of idx){ while (lower.length >= 2 && cross(pts[lower[lower.length-2]], pts[lower[lower.length-1]], pts[i]) <= 0) lower.pop(); lower.push(i); }
+  for (let k = idx.length - 1; k >= 0; k--){ const i = idx[k]; while (upper.length >= 2 && cross(pts[upper[upper.length-2]], pts[upper[upper.length-1]], pts[i]) <= 0) upper.pop(); upper.push(i); }
   upper.pop(); lower.pop();
   return lower.concat(upper);
 }
-// keep the part of polygon `poly` where (x - m)·d <= 0  (Sutherland–Hodgman, one half-plane)
-function clipHalfPlane(poly, m, d){
-  const out = [], f = q => (q[0]-m[0])*d[0] + (q[1]-m[1])*d[1];
-  for (let i = 0; i < poly.length; i++){
-    const a = poly[i], b = poly[(i+1) % poly.length], fa = f(a), fb = f(b);
-    if (fa <= 0) out.push(a);
-    if ((fa < 0 && fb > 0) || (fa > 0 && fb < 0)){
-      const t = fa / (fa - fb);
-      out.push([a[0] + t*(b[0]-a[0]), a[1] + t*(b[1]-a[1])]);
-    }
-  }
-  return out;
-}
-// Voronoi cell of point i, clipped to the convex hull
-function voronoiCell(i, hull){
-  let poly = hull.slice();
-  for (let j = 0; j < XY.length && poly.length; j++){
-    if (j === i) continue;
-    const a = XY[i], b = XY[j];
-    poly = clipHalfPlane(poly, [(a[0]+b[0])/2, (a[1]+b[1])/2], [b[0]-a[0], b[1]-a[1]]);
-  }
-  return poly;
-}
-const area = poly => Math.abs(poly.reduce((s, p, k) => { const q = poly[(k+1) % poly.length]; return s + p[0]*q[1] - q[0]*p[1]; }, 0)) / 2;
+const polyArea = poly => Math.abs(poly.reduce((s, p, k) => { const q = poly[(k+1) % poly.length]; return s + p[0]*q[1] - q[0]*p[1]; }, 0)) / 2;
 const pathOf = poly => "M" + poly.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join("L") + "Z";
-const perimeter = poly => poly.reduce((s, p, k) => { const q = poly[(k+1) % poly.length]; return s + Math.hypot(q[0]-p[0], q[1]-p[1]); }, 0);
+const lerp = (a, b, t) => [a[0] + (b[0]-a[0])*t, a[1] + (b[1]-a[1])*t];
+const centroid = pts => pts.reduce((c, p) => [c[0] + p[0]/pts.length, c[1] + p[1]/pts.length], [0, 0]);
 
-const HULL = convexHull(XY);
-const CELLS = XY.map((_, i) => voronoiCell(i, HULL));
-const AREAS = CELLS.map(area);
-const AMIN = Math.min(...AREAS), AMAX = Math.max(...AREAS);
+const HULL0 = hullIdx(BASE);                         // hull vertices of the original layout
+const HULL0_POLY = HULL0.map(i => BASE[i]);
+const AREA0 = polyArea(HULL0_POLY);
+const C0 = centroid(BASE);
+
+/* ==================== keyframes ==================== */
+// Magnitude: every species moves; the community spreads out, then pulls in, then returns.
+const scaleAbout = (pts, sx, sy) => pts.map(p => [C0[0] + (p[0]-C0[0])*sx, C0[1] + (p[1]-C0[1])*sy]);
+const MAG_KEYS = [
+  BASE,
+  scaleAbout(BASE, 1.32, 1.22),   // larger occupied space
+  scaleAbout(BASE, 0.62, 0.70),   // smaller occupied space
+  BASE
+];
+
+// Variation: hull species stay put (so the hull is identical); interior species move toward a
+// cluster centre inside the hull. Each target is a convex combination of points inside the hull,
+// so it is guaranteed to stay inside it.
+const isHull = new Set(HULL0);
+function clusterToward(center, pull){
+  return BASE.map((p, i) => isHull.has(i) ? p : lerp(p, center, pull));
+}
+// cluster centres: halfway from the centroid toward the upper-left / lower-right hull vertices
+const byScore = f => HULL0.map(i => BASE[i]).sort((a, b) => f(a) - f(b))[0];
+const UL = lerp(C0, byScore(p => p[0] + p[1]), .5);      // smallest x+y  → upper-left on screen
+const LR = lerp(C0, byScore(p => -(p[0] + p[1])), .5);   // largest  x+y  → lower-right
+const VAR_KEYS = [
+  BASE,
+  clusterToward(UL, .55),   // species bunched in one corner
+  clusterToward(LR, .55),   // bunched in the opposite corner
+  BASE                      // evenly spread again
+];
 
 /* ==================== drawing ==================== */
 const NS = "http://www.w3.org/2000/svg";
@@ -173,84 +170,74 @@ function drawAxes(svg){
   el("text", {x:0, y:0, "text-anchor":"middle", class:"axis-title",
     transform:`translate(${x0-16},${(y0+y1)/2}) rotate(-90)`}, g).textContent = "PC2";
 }
-function drawPoints(svg){
-  const g = el("g", {}, svg);
-  XY.forEach(([x, y]) => el("circle", {cx:x, cy:y, r:5, class:"pt"}, g));
-}
-
-// --- Magnitude panel: axes, hull (hidden until played), points on top
-const svgMag = document.getElementById("svgMag");
-drawAxes(svgMag);
-const hullPath = el("path", {d:pathOf(HULL), class:"hull"}, svgMag);
-const HULL_LEN = perimeter(HULL);
-drawPoints(svgMag);
-
-// --- Variation panel: axes, Voronoi cells shaded by area, hull outline, points on top
-const svgVar = document.getElementById("svgVar");
-drawAxes(svgVar);
-const gCells = el("g", {}, svgVar);
-const cellPaths = CELLS.map((poly, i) => {
-  const k = AMAX > AMIN ? (AREAS[i] - AMIN) / (AMAX - AMIN) : .5;   // 0 = smallest cell, 1 = largest
-  const fill = `rgba(var(--cell),${(.06 + .38*k).toFixed(3)})`;
-  return el("path", {d:pathOf(poly), class:"cell", style:`fill:${fill}`}, gCells);
-});
-const outline = el("path", {d:pathOf(HULL), class:"outline"}, svgVar);
-drawPoints(svgVar);
-
-/* ==================== animation state ==================== */
-let shown = false, playing = false, runId = 0;
-const sleep = ms => new Promise(r => setTimeout(r, ms / SPEED));
-
-function setHull(drawn, animate){
-  hullPath.style.transition = animate ? `stroke-dashoffset ${900/SPEED}ms ease, fill-opacity ${600/SPEED}ms ease` : "none";
-  hullPath.style.strokeDasharray = HULL_LEN;
-  hullPath.style.strokeDashoffset = drawn ? 0 : HULL_LEN;
-}
-function clearAll(){
-  runId++; playing = false;
-  setHull(false, false); hullPath.classList.remove("drawn");
-  cellPaths.forEach(c => c.classList.remove("on")); outline.classList.remove("on");
-  shown = false; postStatus();
-}
-function showAll(){
-  setHull(true, false); hullPath.classList.add("drawn");
-  cellPaths.forEach(c => c.classList.add("on")); outline.classList.add("on");
-  shown = true; playing = false; postStatus();
-}
-async function play(){
-  clearAll();
-  const my = runId; playing = true; postStatus();
-  await sleep(150); if (my !== runId) return;
-  // magnitude: trace the hull, then fill it
-  void hullPath.getBoundingClientRect();
-  setHull(true, true);
-  // variation: outline first, then cells one by one
-  outline.classList.add("on");
-  setTimeout(() => { if (my === runId) hullPath.classList.add("drawn"); }, 900 / SPEED);
-  for (const c of cellPaths){
-    await sleep(110); if (my !== runId) return;
-    c.classList.add("on");
+function makePanel(svgId, ghost){
+  const svg = document.getElementById(svgId);
+  drawAxes(svg);
+  if (ghost) el("path", {d:pathOf(HULL0_POLY), class:"ghost"}, svg);   // reference: original hull
+  const hull = el("path", {class:"hull"}, svg);
+  const gPts = el("g", {}, svg);
+  const dots = BASE.map(() => el("circle", {r:5, class:"pt"}, gPts));
+  let readout = null, val = null;
+  if (SHOW_AREA){
+    readout = el("text", {x:x1, y:y1+4, "text-anchor":"end", class:"readout"}, svg);
+    readout.appendChild(document.createTextNode("Hull area "));
+    val = el("tspan", {class:"val"}, readout);
   }
-  await sleep(400); if (my !== runId) return;
-  shown = true; playing = false; postStatus();
+  return {
+    render(pts){
+      const hi = hullIdx(pts), poly = hi.map(i => pts[i]);
+      hull.setAttribute("d", pathOf(poly));
+      dots.forEach((d, i) => { d.setAttribute("cx", pts[i][0].toFixed(1)); d.setAttribute("cy", pts[i][1].toFixed(1)); });
+      if (val) val.textContent = Math.round(100 * polyArea(poly) / AREA0) + "%";
+    }
+  };
 }
+const magPanel = makePanel("svgMag", true);
+const varPanel = makePanel("svgVar", false);
+
+/* ==================== timeline ==================== */
+// Each step: move for MOVE ms, then hold for HOLD ms. Loops while playing.
+const MOVE = 1300, HOLD = 900, STEP = MOVE + HOLD;
+const NSTEP = MAG_KEYS.length - 1;          // 3 transitions per cycle
+const CYCLE = NSTEP * STEP;
+const ease = k => k < .5 ? 2*k*k : 1 - (-2*k + 2)**2 / 2;
+
+function poseAt(keys, t){
+  const tc = ((t % CYCLE) + CYCLE) % CYCLE;
+  const s = Math.floor(tc / STEP), within = tc - s*STEP;
+  const k = ease(Math.min(1, within / MOVE));
+  const a = keys[s], b = keys[s+1];
+  return a.map((p, i) => lerp(p, b[i], k));
+}
+
+let t = 0, playing = false, last = 0;
+function frame(now){
+  if (!playing) return;
+  t += (now - last) * SPEED; last = now;
+  draw();
+  requestAnimationFrame(frame);
+}
+function draw(){
+  magPanel.render(poseAt(MAG_KEYS, t));
+  varPanel.render(poseAt(VAR_KEYS, t));
+}
+function setPlay(want){
+  if (want && !playing){ playing = true; last = performance.now(); requestAnimationFrame(frame); }
+  else if (!want && playing){ playing = false; }
+  postStatus();
+}
+function reset(){ playing = false; t = 0; draw(); postStatus(); }
 
 /* ==================== controls.html link ==================== */
-// Same protocol as the trait-space pages, on its own channel so the two slides don't interfere.
+// Own channel ("magvar") so this slide never reacts to the trait-space slide's buttons.
 const bc = ("BroadcastChannel" in window) ? new BroadcastChannel(P.get("channel") || "magvar") : null;
-function postStatus(){ if (bc) bc.postMessage({cmd:"status", arg:{playing, placed: shown ? 1 : 0, N:1}}); }
-const ACTIONS = {
-  setPlay: want => { if (want) play(); else if (playing){ showAll(); } },
-  reset: clearAll,
-  all: showAll,
-  next: () => { if (!shown) showAll(); },
-  ping: postStatus
-};
+function postStatus(){ if (bc) bc.postMessage({cmd:"status", arg:{playing, placed:0, N:1}}); }
+const ACTIONS = { setPlay, reset, ping: postStatus };
 if (bc) bc.onmessage = e => { const f = e.data && ACTIONS[e.data.cmd]; if (f) f(e.data.arg); };
 
 /* ==================== init ==================== */
-setHull(false, false);
-if (P.get("show") === "1") showAll(); else postStatus();
+draw(); postStatus();
+if (P.get("autoplay") === "1") setPlay(true);
 })();
 </script>
 </body>
