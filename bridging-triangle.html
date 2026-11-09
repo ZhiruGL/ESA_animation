@@ -3,36 +3,46 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Bridging Triangle</title>
+<title>Two-Step Filtering</title>
 <style>
 :root{
-  --bg:#ffffff; --fg:#1f2328; --muted:#8a919a; --pt:#1f2328; --mesh:#d5d9de;
+  --bg:#ffffff; --fg:#1f2328; --muted:#8a919a; --pt:#1f2328; --track:#d0d4d9;
+  --paint:#f6caa9; --edge:#de8550;
   --bridge:#c2410c; --bridge-fill:rgba(194,65,12,.18);
-  --long:#1d9e75; --long-fill:rgba(29,158,117,.28);
+  --green:#1d9e75; --green-fill:rgba(29,158,117,.28);
 }
 :root[data-theme="dark"]{
-  --bg:#111418; --fg:#e6e8eb; --muted:#8b939c; --pt:#e6e8eb; --mesh:#3a4048;
+  --bg:#111418; --fg:#e6e8eb; --muted:#8b939c; --pt:#e6e8eb; --track:#3a4048;
+  --paint:#7a4e33; --edge:#f0a46f;
   --bridge:#ff8a4c; --bridge-fill:rgba(255,138,76,.25);
-  --long:#5dcaa5; --long-fill:rgba(93,202,165,.3);
+  --green:#5dcaa5; --green-fill:rgba(93,202,165,.3);
 }
 *{box-sizing:border-box}
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--fg);
   font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 html.transparent,html.transparent body{background:transparent}
-/* one SVG, so the picture scales as a whole; designed for 960 × 497 */
-svg{display:block;width:100%;height:100%}
+/* one SVG (switch included), so everything scales together; designed for 960 × 497 */
+svg{display:block;width:100%;height:100%;user-select:none}
 .axis{stroke:var(--muted);stroke-width:1.5;fill:none}
 .arrow{fill:var(--muted)}
 .axis-title{fill:var(--fg);font-size:18px;font-weight:800}
 .pt{fill:var(--pt)}
-.shape-fill{fill:#f6caa9;stroke:#f6caa9;stroke-width:.8;stroke-linejoin:round}
-.shape-edge{fill:none;stroke:#de8550;stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
-:root[data-theme="dark"] .shape-fill{fill:#7a4e33;stroke:#7a4e33}
-:root[data-theme="dark"] .shape-edge{stroke:#f0a46f}
+.shape-fill{fill:var(--paint);stroke:var(--paint);stroke-width:.8;stroke-linejoin:round}
+.shape-edge{fill:none;stroke:var(--edge);stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
+.layer{transition:opacity .6s ease}
 .bridge{fill:var(--bridge-fill);stroke:var(--bridge);stroke-width:2.5;stroke-linejoin:round}
+.green{fill:var(--green-fill);stroke:var(--green);stroke-width:2.5;stroke-linejoin:round}
+.gone-b{fill:none;stroke:var(--bridge);stroke-width:1.6;stroke-dasharray:5 4;stroke-linejoin:round}
+.gone-g{fill:none;stroke:var(--green);stroke-width:1.6;stroke-dasharray:5 4;stroke-linejoin:round}
 .num{fill:var(--bridge);font-size:18px;font-weight:800}
-.first{fill:var(--long-fill);stroke:var(--long);stroke-width:2.5;stroke-linejoin:round}
-.lab{font-size:17px;font-weight:800}
+.opt{fill:var(--muted);font-size:17px;font-weight:700;cursor:pointer;transition:fill .3s}
+.opt.on{fill:var(--fg)}
+.sw{cursor:pointer;outline:none}
+.sw .track{fill:var(--track);transition:fill .3s}
+.sw.on .track{fill:var(--edge)}
+.sw .knob{fill:#fff;transition:transform .3s}
+.sw.on .knob{transform:translateX(24px)}
+.sw:focus-visible .track{stroke:var(--edge);stroke-width:2}
 </style>
 </head>
 <body>
@@ -41,19 +51,23 @@ svg{display:block;width:100%;height:100%}
 (function(){
 "use strict";
 /* ============================================================
-   A bridging triangle inside an α-shape.
+   The bridging-triangle example, before and after the AlphaRichness filtering.
 
-   Two clusters; the α-shape underneath is the standard one (every Delaunay triangle with
-   circumradius ≤ α). Two triangles that span the gap between the clusters are highlighted:
-     dark orange — the bridge: every triangle of the shape with corners in both clusters (3 here),
-                   numbered 1–3 from top to bottom to match bridge-table.html (labels=0 hides the numbers)
-     green       — the triangle circumradius filtering removes first: the largest circumradius in
-                   the shape (found from the shape itself; here the thin triangle on the left edge)
+   Left of the switch  — α-shape: every Delaunay triangle with circumradius ≤ α (≈ 93), as in
+                         bridging-triangle.html; bridges 1–3 (dark orange) and the thin edge triangle
+                         (green) highlighted.
+   Right of the switch — circumradius + longest edge: AlphaRichness's prune_two_step() on all Delaunay
+                         triangles of the same points (Step 1 removes largest circumradius first, Step 2
+                         largest longest edge first; each step stops the first time a removal would leave
+                         a species uncovered). Triangles removed from the highlighted set are dashed.
 
-   Options: labels=0 hides the 1–3 numbers; alpha=<number> (screen units, default ≈ 93) to draw a different α-shape;
-            theme=dark|auto, bg=transparent
-   Inspect: window.bridgeTriangle
+   The two-step result was computed in R with the package's own functions (delaunay_simplices,
+   compute_simplex_scores, prune_two_step), unchanged; this page only draws it.
+
+   Options: state=filtered (open on the right), labels=0 (hide 1–3), theme=dark|auto, bg=transparent
+   Inspect: window.twoStep
    ============================================================ */
+const D = {"pts": [[261.601339714631, 278.373813835053], [262.924504814811, 190.718738688633], [238.912945176854, 302.13049316357], [246.079989796274, 190.18346269574], [285.025963742157, 211.302859681597], [225.595674133604, 289.835264657666], [264.417031958585, 228.509198020943], [308.499274490757, 282.466556334862], [234.717945775175, 200.242477836749], [239.82329388638, 276.239625809979], [293.512245207199, 278.487265925835], [233.317796187926, 262.694033113643], [260.874081295673, 175.324788285337], [306.591512358225, 259.122578582884], [220.337421291448, 225.109426425558], [284.773451180313, 235.489782455979], [233.06888299238, 183.068187225659], [239.616910189599, 242.155906131517], [242.687202273584, 221.210650731578], [312.238507345777, 216.871003067981], [308.964235614678, 199.674553737794], [260.249386411644, 208.70289416356], [247.239674488546, 286.033786214106], [289.483245907655, 177.496927528199], [281.919734558149, 262.205155241021], [305.168558127125, 244.161291543455], [214.333885940459, 260.376468101999], [316.66553014384, 299.84388959337], [272.749771795969, 205.735701461266], [272.650439117775, 246.372351691568], [296.836880820523, 220.45269553397], [223.031599738317, 190.402585268405], [297.977140400072, 313.311244199873], [284.377549763603, 299.480242499225], [256.43209223327, 245.154544964383], [270.718046059449, 308.973475577031], [274.566425508358, 292.503902919668], [283.282889589736, 284.710941396749], [592.991496077009, 245.049510819093], [500.677426308917, 294.718890249361], [561.548723370377, 265.902525204425], [595.854518138058, 201.023421928634], [524.09003801986, 313.07714649244], [554.502466693556, 185.969730032595], [558.925328031966, 246.881521080933], [540.33129758532, 216.318404974159], [531.523197242146, 283.038243253345], [562.537809519347, 302.51041224079], [547.16102954227, 248.772633087996], [539.181205979794, 196.143898313081], [575.080486034431, 220.831750562871], [525.132769734115, 294.888685647204], [610.971346056495, 239.013520113205], [576.319527183716, 241.694721978218], [574.941414203641, 181.166873746848], [518.772290588046, 187.472213737568], [506.48107982746, 276.934084151651], [556.906662249812, 281.818931958044], [520.829940530213, 236.932087952874], [504.783848382772, 241.064110939228], [553.949068137928, 218.057829662625], [540.684581109071, 262.650693303413], [546.804631821341, 227.669605530189], [599.799578402424, 267.273045665195], [481.433091471106, 256.641656228334], [478.41693627073, 273.647372658122], [592.547012409591, 292.53010652677], [558.127122374674, 313.411082382902], [494.96161652996, 257.462639049857], [601.142691814232, 211.72569841683], [541.602334346883, 304.414245125675], [569.05642918785, 287.494548422111], [469.855007307664, 228.349224612301], [494.475203974125, 220.162396256572], [487.801025678047, 241.501990952952], [563.876127907003, 194.30090950669], [331, 202], [331, 288], [466, 245], [200, 210], [207, 245], [200, 280]], "alphaShape": [[9, 5, 11], [1, 3, 12], [7, 10, 13], [6, 4, 15], [3, 8, 16], [12, 3, 16], [14, 8, 18], [17, 14, 18], [3, 1, 21], [6, 18, 21], [8, 3, 21], [18, 8, 21], [9, 0, 22], [2, 5, 22], [5, 9, 22], [20, 4, 23], [1, 12, 23], [13, 10, 24], [13, 24, 25], [24, 15, 25], [11, 5, 26], [17, 11, 26], [21, 1, 28], [4, 6, 28], [6, 21, 28], [1, 23, 28], [23, 4, 28], [6, 15, 29], [15, 24, 29], [24, 0, 29], [15, 4, 30], [4, 20, 30], [20, 19, 30], [19, 25, 30], [25, 15, 30], [8, 14, 31], [16, 8, 31], [10, 7, 33], [7, 27, 33], [27, 32, 33], [0, 9, 34], [9, 11, 34], [17, 18, 34], [18, 6, 34], [29, 0, 34], [11, 17, 34], [6, 29, 34], [2, 22, 35], [33, 32, 35], [22, 0, 36], [35, 22, 36], [33, 35, 36], [0, 24, 37], [36, 0, 37], [24, 10, 37], [10, 33, 37], [33, 36, 37], [44, 40, 48], [42, 39, 51], [40, 44, 53], [44, 50, 53], [50, 38, 53], [43, 49, 55], [49, 45, 55], [46, 51, 56], [51, 39, 56], [58, 56, 59], [45, 49, 60], [50, 44, 60], [48, 40, 61], [40, 57, 61], [57, 46, 61], [58, 48, 61], [46, 56, 61], [56, 58, 61], [48, 58, 62], [58, 45, 62], [44, 48, 62], [60, 44, 62], [45, 60, 62], [38, 52, 63], [40, 53, 63], [53, 38, 63], [56, 39, 65], [47, 66, 67], [59, 56, 68], [56, 65, 68], [65, 64, 68], [38, 50, 69], [52, 38, 69], [50, 41, 69], [51, 46, 70], [46, 57, 70], [57, 47, 70], [42, 51, 70], [67, 42, 70], [47, 67, 70], [47, 57, 71], [66, 47, 71], [57, 40, 71], [40, 63, 71], [63, 66, 71], [55, 45, 73], [45, 58, 73], [58, 59, 73], [72, 55, 73], [59, 68, 74], [68, 64, 74], [72, 73, 74], [73, 59, 74], [41, 50, 75], [54, 41, 75], [43, 54, 75], [49, 43, 75], [60, 49, 75], [50, 60, 75], [25, 19, 76], [20, 23, 76], [19, 20, 76], [7, 13, 77], [27, 7, 77], [13, 25, 77], [25, 76, 77], [64, 65, 78], [72, 74, 78], [74, 64, 78], [65, 77, 78], [76, 72, 78], [77, 76, 78], [31, 14, 79], [14, 17, 80], [17, 26, 80], [79, 14, 80], [5, 2, 81], [26, 5, 81], [80, 26, 81], [79, 80, 81]], "twoStep": [[5, 22, 2], [50, 69, 41], [70, 47, 67], [45, 55, 49], [64, 78, 65], [9, 34, 11], [9, 5, 11], [9, 5, 22], [26, 5, 81], [26, 5, 11], [17, 34, 11], [17, 26, 11], [17, 26, 80], [71, 47, 66], [38, 69, 52], [38, 50, 69], [38, 63, 52], [58, 59, 73], [60, 45, 49], [39, 56, 65], [61, 40, 48], [61, 58, 48], [68, 56, 65], [68, 64, 65], [74, 59, 73], [74, 72, 73], [74, 68, 59], [74, 68, 64], [74, 72, 78], [74, 64, 78], [16, 3, 12], [16, 3, 8], [4, 28, 6], [4, 20, 30], [4, 23, 20], [4, 23, 28], [21, 28, 6], [21, 3, 8], [19, 25, 30], [19, 20, 76], [19, 20, 30], [15, 25, 30], [15, 4, 6], [15, 4, 30], [0, 9, 34], [0, 9, 22], [14, 80, 79], [14, 17, 80], [75, 43, 54], [75, 41, 54], [75, 50, 41], [75, 60, 50], [75, 43, 49], [75, 60, 49], [1, 23, 12], [1, 23, 28], [1, 21, 28], [1, 3, 12], [1, 21, 3], [53, 38, 50], [53, 38, 63], [62, 58, 48], [62, 58, 45], [62, 60, 45], [51, 70, 42], [51, 39, 42], [51, 39, 56], [57, 70, 47], [57, 71, 47], [57, 71, 40], [57, 61, 40], [31, 16, 8], [31, 14, 79], [31, 14, 8], [29, 34, 6], [29, 15, 6], [29, 0, 34], [18, 14, 8], [18, 14, 17], [18, 21, 8], [18, 21, 6], [18, 34, 6], [18, 17, 34], [44, 60, 50], [44, 53, 50], [44, 62, 60], [44, 62, 48], [44, 40, 48], [44, 53, 40], [46, 51, 70], [46, 57, 70], [46, 57, 61], [46, 51, 56], [24, 29, 0], [24, 13, 10], [24, 13, 25], [24, 15, 25], [24, 29, 15], [7, 13, 10], [36, 0, 22], [27, 7, 77], [33, 7, 10], [33, 27, 32], [33, 27, 7], [37, 33, 10], [37, 33, 36], [37, 24, 10], [37, 24, 0], [37, 36, 0], [35, 33, 36], [35, 22, 2], [35, 36, 22], [35, 33, 32]], "bridges": [[[331, 202], [469.85500730766415, 228.3492246123013], [466, 245]], [[331, 288], [331, 202], [466, 245]], [[478.4169362707298, 273.6473726581221], [331, 288], [466, 245]]], "green": [[200, 210], [207, 245], [200, 280]], "alpha": 92.82000000000001, "step1Stop": 20.0824009290109, "step2Stop": 36.0124080223262};
 const P = new URLSearchParams(location.search);
 const root = document.documentElement;
 const theme = P.get("theme");
@@ -68,74 +82,12 @@ function el(tag, attrs, parent){
   return e;
 }
 const f1 = v => v.toFixed(1);
+const pts = D.pts;
+const PLOT = {x0:60, x1:640, y0:450, y1:70};
+const triPath = v => "M" + v.map(p => f1(p[0]) + "," + f1(p[1])).join("L") + "Z";
+const key = v => v.map(p => f1(p[0]) + "," + f1(p[1])).sort().join(" ");
 
-/* ==================== layout ==================== */
-const PLOT = {x0:60, x1:640, y0:450, y1:40};                  // plot box (y0 = bottom)
-
-/* ==================== geometry ==================== */
-const dist = (a, b) => Math.hypot(a[0]-b[0], a[1]-b[1]);
-function circum(a, b, c){
-  const d = 2*(a[0]*(b[1]-c[1]) + b[0]*(c[1]-a[1]) + c[0]*(a[1]-b[1]));
-  const a2 = a[0]*a[0]+a[1]*a[1], b2 = b[0]*b[0]+b[1]*b[1], c2 = c[0]*c[0]+c[1]*c[1];
-  const x = (a2*(b[1]-c[1]) + b2*(c[1]-a[1]) + c2*(a[1]-b[1])) / d;
-  const y = (a2*(c[0]-b[0]) + b2*(a[0]-c[0]) + c2*(b[0]-a[0])) / d;
-  return {x, y, r:Math.hypot(a[0]-x, a[1]-y)};
-}
-function describe(tri){
-  const e = [[0,1],[1,2],[2,0]].map(([i, j]) => ({i, j, len:dist(tri[i], tri[j])}));
-  const longest = e.reduce((m, x) => x.len > m.len ? x : m);
-  return {tri, cc:circum(...tri), longest};
-}
-
-/* ==================== points: two clusters ==================== */
-// deterministic pseudo-random scatter in a disc (same picture every load)
-function rng(seed){ return () => (seed = (seed * 16807) % 2147483647) / 2147483647; }
-function disc(cx, cy, r, n, seed, keepOut){
-  const rnd = rng(seed), out = [];
-  while (out.length < n){
-    const t = 2*Math.PI*rnd(), s = r*Math.sqrt(rnd()), p = [cx + s*Math.cos(t), cy + s*Math.sin(t)];
-    if (!keepOut(p) && out.every(q => dist(p, q) > 11)) out.push(p);
-  }
-  return out;
-}
-const LEFT = {cx:270, cy:245, r:75}, RIGHT = {cx:540, cy:245, r:75};
-
-// the two highlighted triangles (their vertices are cluster points)
-const BRIDGE = [[331, 202], [331, 288], [466, 245]];          // two on the left cluster's right edge, one on the right cluster's left edge
-const EDGE_PTS = [[200, 210], [207, 245], [200, 280]];        // three points on the left cluster's left edge (kept so the shape is unchanged)
-const bridge = describe(BRIDGE), edgeTri = describe(EDGE_PTS);   // edgeTri only fixes the default α and keeps scatter clear
-
-// keep scatter points outside these circumcircles, so the bridge is a genuine Delaunay triangle and the picture is as before
-const inside = (p, d) => dist(p, [d.cc.x, d.cc.y]) < d.cc.r + 4;   // strictly outside, with a margin
-const keep = p => inside(p, edgeTri) || inside(p, bridge) || [...BRIDGE, ...EDGE_PTS].some(q => dist(p, q) < 12);
-const pts = [...disc(LEFT.cx, LEFT.cy, LEFT.r, 38, 7, keep), ...disc(RIGHT.cx, RIGHT.cy, RIGHT.r, 38, 19, keep), ...BRIDGE, ...EDGE_PTS];
-
-/* ==================== α-shape (Delaunay, circumradius ≤ α) ==================== */
-function delaunay(pts){                                         // Bowyer–Watson
-  const BIG = 1e5, all = pts.concat([[-BIG, -BIG], [BIG*2, -BIG], [-BIG, BIG*2]]), n = pts.length;
-  let tris = [{v:[n, n+1, n+2], c:circum(all[n], all[n+1], all[n+2])}];
-  for (let i = 0; i < n; i++){
-    const p = all[i], bad = [], keep = [];
-    for (const t of tris) ((p[0]-t.c.x)**2 + (p[1]-t.c.y)**2 < t.c.r**2 ? bad : keep).push(t);
-    const edges = new Map();
-    for (const t of bad) for (let k = 0; k < 3; k++){
-      const a = t.v[k], b = t.v[(k+1)%3], key = a < b ? a+","+b : b+","+a;
-      edges.set(key, edges.has(key) ? null : [a, b]);
-    }
-    tris = keep;
-    for (const e of edges.values()) if (e) tris.push({v:[e[0], e[1], i], c:circum(all[e[0]], all[e[1]], p)});
-  }
-  return tris.filter(t => t.v.every(v => v < n));
-}
-const DT = delaunay(pts);
-const ALPHA = parseFloat(P.get("alpha")) || edgeTri.cc.r * 1.02;
-const KEPT = DT.filter(t => t.c.r <= ALPHA);
-// is the highlighted triangle really a Delaunay triangle of this point set?
-const idx = p => pts.findIndex(q => q[0] === p[0] && q[1] === p[1]);
-const sameTri = (t, tri) => { const v = tri.map(idx).sort((a, b) => a - b), w = t.v.slice().sort((a, b) => a - b); return v.every((x, k) => x === w[k]); };
-const bridgeIsDelaunay = DT.some(t => sameTri(t, BRIDGE));
-
-/* ==================== draw: plot ==================== */
+/* ==================== axes ==================== */
 {
   const g = el("g", {});
   el("path", {d:`M${PLOT.x0},${PLOT.y1-6}V${PLOT.y0}H${PLOT.x1+6}`, class:"axis"}, g);
@@ -145,42 +97,62 @@ const bridgeIsDelaunay = DT.some(t => sameTri(t, BRIDGE));
   el("text", {x:0, y:0, "text-anchor":"middle", class:"axis-title",
     transform:`translate(${PLOT.x0-22},${(PLOT.y0+PLOT.y1)/2}) rotate(-90)`}, g).textContent = "PC2";
 }
-// α-shape: filled kept triangles + boundary edges
-{
-  const g = el("g", {});
-  el("path", {d:KEPT.map(t => "M" + t.v.map(i => f1(pts[i][0]) + "," + f1(pts[i][1])).join("L") + "Z").join(""), class:"shape-fill"}, g);
+
+/* ==================== one layer per state ==================== */
+function shapeLayer(tris){
+  const g = el("g", {class:"layer"});
+  const v = tris.map(t => t.map(i => pts[i]));
+  el("path", {d:v.map(triPath).join(""), class:"shape-fill"}, g);
   const cnt = new Map();
-  for (const t of KEPT) for (let k = 0; k < 3; k++){
-    const a = t.v[k], b = t.v[(k+1)%3], key = a < b ? a+","+b : b+","+a;
-    cnt.set(key, (cnt.get(key) || 0) + 1);
+  for (const t of tris) for (let k = 0; k < 3; k++){
+    const a = t[k], b = t[(k+1)%3], kk = a < b ? a+","+b : b+","+a;
+    cnt.set(kk, (cnt.get(kk) || 0) + 1);
   }
   const bnd = [...cnt].filter(([, c]) => c === 1).map(([k]) => k.split(",").map(Number));
   el("path", {d:bnd.map(([i, j]) => `M${f1(pts[i][0])},${f1(pts[i][1])}L${f1(pts[j][0])},${f1(pts[j][1])}`).join(""), class:"shape-edge"}, g);
+  return {g, keys:new Set(v.map(key))};
 }
-// the bridging triangle, and (in green) the triangle that circumradius filtering removes first:
-// the one in the α-shape with the largest circumradius
-const FIRST_OUT = KEPT.reduce((m, t) => t.c.r > m.c.r ? t : m);
-// the bridge = every triangle of the shape with corners in both clusters, numbered 1, 2, 3 from top to bottom
-const inLeft = i => pts[i][0] < (LEFT.cx + RIGHT.cx) / 2;
-const BRIDGES = KEPT.filter(t => t.v.some(inLeft) && !t.v.every(inLeft))
-  .map(t => ({t, cy:t.v.reduce((a, i) => a + pts[i][1], 0) / 3, cx:t.v.reduce((a, i) => a + pts[i][0], 0) / 3}))
-  .sort((a, b) => a.cy - b.cy);
-BRIDGES.forEach(b => el("path", {d:"M" + b.t.v.map(i => f1(pts[i][0]) + "," + f1(pts[i][1])).join("L") + "Z", class:"bridge"}));
-el("path", {d:"M" + FIRST_OUT.v.map(i => f1(pts[i][0]) + "," + f1(pts[i][1])).join("L") + "Z", class:"first"});
+const before = shapeLayer(D.alphaShape), after = shapeLayer(D.twoStep);
+// highlighted triangles: solid where the state still has them, dashed where it removed them
+for (const st of [before, after]){
+  D.bridges.forEach(v => el("path", {d:triPath(v), class:st.keys.has(key(v)) ? "bridge" : "gone-b"}, st.g));
+  el("path", {d:triPath(D.green), class:st.keys.has(key(D.green)) ? "green" : "gone-g"}, st.g);
+}
 {
   const g = el("g", {});
   pts.forEach(p => el("circle", {cx:f1(p[0]), cy:f1(p[1]), r:3, class:"pt"}, g));
 }
-
-// numbers next to the bridge triangles, so the table's "bridge 1/2/3" can be matched (labels=0 hides them)
 if (P.get("labels") !== "0"){
-  const ys = [BRIDGES[0].cy - 26, null, BRIDGES[2].cy + 34];
-  BRIDGES.forEach((b, k) => {
-    const y = k === 1 ? b.cy + 6 : ys[k];
-    el("text", {x:f1(k === 1 ? b.cx - 8 : b.cx + 8), y:f1(y), "text-anchor":"middle", class:"num"}).textContent = String(k + 1);
-  });
+  const c = D.bridges.map(v => [v.reduce((a, p) => a + p[0], 0) / 3, v.reduce((a, p) => a + p[1], 0) / 3]);
+  el("text", {x:f1(c[0][0] + 8), y:f1(c[0][1] - 26), "text-anchor":"middle", class:"num"}).textContent = "1";
+  el("text", {x:f1(c[1][0] - 8), y:f1(c[1][1] + 6),  "text-anchor":"middle", class:"num"}).textContent = "2";
+  el("text", {x:f1(c[2][0] + 8), y:f1(c[2][1] + 34), "text-anchor":"middle", class:"num"}).textContent = "3";
 }
-window.bridgeTriangle = {bridge, pts, alpha:ALPHA, kept:KEPT, bridgeIsDelaunay, firstOut:FIRST_OUT, bridges:BRIDGES.map(b => ({v:b.t.v.map(i => pts[i]), r:b.t.c.r}))};
+
+/* ==================== switch ==================== */
+const SW_X = 345, SW_Y = 28;
+const swG = el("g", {class:"sw", role:"switch", tabindex:0, "aria-checked":"false",
+  "aria-label":"Show the result of circumradius plus longest-edge filtering", transform:`translate(${SW_X - 26},${SW_Y - 14})`});
+el("rect", {width:52, height:28, rx:14, class:"track"}, swG);
+el("circle", {cx:14, cy:14, r:11, class:"knob"}, swG);
+const optA = el("text", {x:SW_X - 38, y:SW_Y, "text-anchor":"end", "dominant-baseline":"central", class:"opt"});
+optA.textContent = `α-shape (α ≈ ${Math.round(D.alpha)})`;
+const optB = el("text", {x:SW_X + 38, y:SW_Y, "text-anchor":"start", "dominant-baseline":"central", class:"opt"});
+optB.textContent = "Circumradius + longest edge";
+
+let filtered = false;
+function set(f){
+  filtered = !!f;
+  swG.classList.toggle("on", filtered); swG.setAttribute("aria-checked", filtered);
+  optA.classList.toggle("on", !filtered); optB.classList.toggle("on", filtered);
+  before.g.style.opacity = filtered ? 0 : 1; after.g.style.opacity = filtered ? 1 : 0;
+}
+swG.addEventListener("click", () => set(!filtered));
+swG.addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter"){ e.preventDefault(); set(!filtered); } });
+optA.addEventListener("click", () => set(false));
+optB.addEventListener("click", () => set(true));
+set(P.get("state") === "filtered");
+window.twoStep = {data:D, set, get filtered(){ return filtered; }};
 })();
 </script>
 </body>
