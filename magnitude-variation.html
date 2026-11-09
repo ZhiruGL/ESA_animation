@@ -7,11 +7,11 @@
 <style>
 :root{
   --bg:#ffffff; --fg:#1f2328; --muted:#8a919a; --line:#e8eaed;
-  --pt:#1f2328; --hull:#2563eb; --hull-fill:rgba(37,99,235,.10); --ghost:#9aa3ad;
+  --pt:#1f2328; --sub:#4b5563; --hull:#2563eb; --hull-fill:rgba(37,99,235,.10); --ghost:#9aa3ad;
 }
 :root[data-theme="dark"]{
   --bg:#111418; --fg:#e6e8eb; --muted:#8b939c; --line:#262b31;
-  --pt:#e6e8eb; --hull:#60a5fa; --hull-fill:rgba(96,165,250,.14); --ghost:#5b636d;
+  --pt:#e6e8eb; --sub:#b4bcc5; --hull:#60a5fa; --hull-fill:rgba(96,165,250,.14); --ghost:#5b636d;
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
@@ -21,7 +21,9 @@ body{display:flex;padding:12px 16px;gap:28px}
 .panel{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center}
 .panel.hidden{display:none}
 h2{margin:0;font-size:var(--tfs,22px);font-weight:800;letter-spacing:-.01em}
-.sub{margin:2px 0 4px;font-size:calc(var(--tfs,22px)*.62);color:var(--muted);font-weight:600;text-align:center}
+/* subtitle: change size with ?sfs=20 */
+.sub{margin:4px 0 6px;font-size:var(--sfs,21px);line-height:1.25;color:var(--sub);font-weight:800;text-align:center;
+  min-height:1.25em}  /* both subtitles reserve the same height so the plots stay aligned */
 svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
 
 .axis{stroke:var(--muted);stroke-width:1.5;fill:none}
@@ -37,12 +39,12 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
 <body>
   <section class="panel" id="pMag">
     <h2>Magnitude</h2>
-    <div class="sub">species spread out or pull in, so the occupied space changes</div>
+    <div class="sub">same species, different occupied space</div>
     <svg id="svgMag" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Magnitude: hull changes as species move"></svg>
   </section>
   <section class="panel" id="pVar">
     <h2>Variation</h2>
-    <div class="sub">same occupied space, species rearranged inside it</div>
+    <div class="sub">same occupied space, species rearranged</div>
     <svg id="svgVar" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Variation: same hull, interior species move"></svg>
   </section>
 
@@ -71,7 +73,7 @@ const root = document.documentElement;
 const theme = P.get("theme");
 if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)) root.dataset.theme = "dark";
 if (P.get("bg") === "transparent") root.classList.add("transparent");
-for (const k of ["afs", "tfs", "rfs"]) if (parseFloat(P.get(k)) > 0) root.style.setProperty("--" + k, parseFloat(P.get(k)) + "px");
+for (const k of ["afs", "tfs", "rfs", "sfs"]) if (parseFloat(P.get(k)) > 0) root.style.setProperty("--" + k, parseFloat(P.get(k)) + "px");
 const PANEL = (P.get("panel") || "both").toLowerCase();
 if (PANEL.startsWith("mag")) document.getElementById("pVar").classList.add("hidden");
 if (PANEL.startsWith("var")) document.getElementById("pMag").classList.add("hidden");
