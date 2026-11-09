@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<title>FRic and N-Hyp — Cluster Separation</title>
+<style>
+  :root{ --bg: #fdfcfa; --ink: #1c1c1c; --muted: #78716a; --hairline: #e4ded2; --accent: #0f766e; --fric: #0072b2; --nhyp: #cc79a7; }
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .stage{ display:flex; flex-direction:column; align-items:center; padding: 26px 30px 34px; gap: 24px; }
+  .panel-label{ font-size: 16px; color: var(--muted); letter-spacing: 0.02em; text-align:center; margin-bottom: 6px; }
+  .canvas-wrap{ background: #ffffff; border: 1px solid var(--hairline); border-radius: 3px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+  canvas{ display:block; border-radius: 3px; }
+  .slider-row{ width: 100%; max-width: 380px; display:flex; align-items:center; gap: 12px; }
+  input[type="range"]{ flex:1; accent-color: var(--accent); height: 4px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div>
+    <div class="panel-label">FRic and N-Hyp vs. separation</div>
+    <div class="canvas-wrap"><canvas id="cnvLine"></canvas></div>
+  </div>
+  <div class="slider-row">
+    <input type="range" id="slider" min="0" max="20" value="0" aria-label="Shift of the moving species">
+  </div>
+</div>
+<script>
+(function(){
+  /* ==========================================================================
+     Companion to alpha-separation.html: the same community (Scenario 1, 50 species, 20% shifted by Δμ),
+     measured with FRic and N-Hyp, each relative to Δμ = 0.
+       FRic  — area of the convex hull.
+       N-Hyp — area of the region holding 95% of the probability mass of a Gaussian kernel density estimate
+               with Silverman bandwidths (the quantity hypervolume::hypervolume_gaussian() estimates),
+               computed here on a 0.02-unit grid rather than with that package's random-point estimator.
+     The slider is linked to alpha-separation.html when both are open (BroadcastChannel "separation").
+     ========================================================================== */
+  const F = {"shifts": [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0], "fric": [7.531539333136691, 7.503086073567225, 8.182101877095848, 9.776267111563296, 11.696504176021707, 13.616741240480112, 15.536978304938518, 17.457215369396927, 19.377452433855332, 21.297689498313737, 23.21792656277215, 25.138163627230558, 27.058400691688956, 28.97863775614737, 30.89887482060578, 32.81911188506419, 34.7393489495226, 36.65958601398099, 38.579823078439404, 40.5000601428978, 42.420297207356235], "nhyp": [12.813600000000001, 13.225200000000001, 15.3192, 18.9528, 23.5684, 28.8456, 34.660000000000004, 40.9852, 47.821600000000004, 55.153600000000004, 62.937200000000004, 71.33120000000001, 80.4208, 90.2388, 100.80120000000001, 112.11720000000001, 124.19120000000001, 137.0276, 150.62800000000001, 164.994, 180.1276]};
+  const SHIFTS = F.shifts, N = SHIFTS.length;
+  const series = [
+    {name:'FRic',  color:'#0072b2', rel:F.fric.map(v => v / F.fric[0])},
+    {name:'N-Hyp', color:'#cc79a7', rel:F.nhyp.map(v => v / F.nhyp[0])},
+  ];
+  const dpr = window.devicePixelRatio || 1;
+  const W = 320, H = 460, c = document.getElementById('cnvLine'), ctx = c.getContext('2d');
+  c.width = W*dpr; c.height = H*dpr; c.style.width = W+'px'; c.style.height = H+'px'; ctx.scale(dpr, dpr);
+
+  // two stacked charts sharing the x axis, each with its own y range
+  const L = 64, R = 20, TOP = 20, BOT = 58, GAP = 34;
+  const ch = (H - TOP - BOT - GAP)/2;
+  const boxes = series.map((s, k) => ({s, y0: TOP + k*(ch + GAP), max: Math.max(...s.rel)*1.06}));
+  const xPx = v => L + v/SHIFTS[N-1]*(W - L - R);
+  const yPx = (b, v) => b.y0 + ch - (v - 0.8)/(b.max - 0.8)*ch;
+  function ticks(max){
+    const raw = (max - 1)/3, mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw/mag;
+    const step = (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10)*mag, out = [1];
+    for (let v = step; v <= max + 1e-9; v += step) if (v - 1 >= 0.75*step) out.push(Math.round(v*100)/100);   // skip labels crowding 1×
+    return out;
+  }
+
+  function draw(i){
+    ctx.clearRect(0, 0, W, H);
+    boxes.forEach((b, k) => {
+      ctx.save();
+      ctx.strokeStyle = '#c9c2b2'; ctx.fillStyle = '#78716a'; ctx.font = '16px -apple-system, sans-serif'; ctx.lineWidth = 1;
+      ctx.strokeRect(L, b.y0, W - L - R, ch);
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ticks(b.max).forEach(v => { const y = yPx(b, v);
+        ctx.beginPath(); ctx.moveTo(L - 4, y); ctx.lineTo(L, y); ctx.stroke(); ctx.fillText(v + '×', L - 6, y); });
+      if (k === boxes.length - 1){
+        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        [0, 2, 4, 6, 8, 10].forEach(v => { const x = xPx(v);
+          ctx.beginPath(); ctx.moveTo(x, b.y0 + ch); ctx.lineTo(x, b.y0 + ch + 4); ctx.stroke(); ctx.fillText(v, x, b.y0 + ch + 6); });
+      }
+      ctx.restore();
+      // name of the index, coloured, inside the top-left of its chart
+      ctx.fillStyle = b.s.color; ctx.font = '600 16px -apple-system, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(b.s.name, L + 8, b.y0 + 6);
+      // the line up to the current Δμ
+      ctx.beginPath();
+      for (let j = 0; j <= i; j++){ const x = xPx(SHIFTS[j]), y = yPx(b, b.s.rel[j]); j ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+      ctx.lineWidth = 2; ctx.strokeStyle = b.s.color; ctx.stroke();
+      ctx.beginPath(); ctx.arc(xPx(SHIFTS[i]), yPx(b, b.s.rel[i]), 3.5, 0, Math.PI*2); ctx.fillStyle = b.s.color; ctx.fill();
+    });
+    ctx.fillStyle = '#1c1c1c'; ctx.font = '17px -apple-system, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Shift of moving species, Δμ', (L + W - R)/2, H - 8);
+    ctx.save(); ctx.translate(18, (TOP + H - BOT)/2); ctx.rotate(-Math.PI/2);
+    ctx.fillText('Functional richness (× start)', 0, 0); ctx.restore();
+  }
+
+  const slider = document.getElementById('slider');
+  const bc = ('BroadcastChannel' in window) ? new BroadcastChannel('separation') : null;
+  slider.addEventListener('input', () => { draw(Number(slider.value)); if (bc) bc.postMessage(Number(slider.value)); });
+  if (bc) bc.onmessage = e => { const v = Number(e.data); if (v >= 0 && v < N){ slider.value = v; draw(v); } };
+  draw(0);
+  window.fricNhyp = {data: F, series, draw};
+})();
+</script>
+</body></html>
