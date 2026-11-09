@@ -14,68 +14,56 @@
   --paint:#7a4e33; --edge:#f0a46f; --pt:#e6e8eb; --hull:#5b636d; --track:#3a4048;
 }
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--fg);
   font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 html.transparent,html.transparent body{background:transparent}
-body{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px;gap:6px}
-
-/* switch: "Normal" ⟷ "With one distal point" */
-.switch{display:flex;align-items:center;gap:12px;font-size:var(--tfs,17px);font-weight:700;user-select:none}
-.switch .opt{color:var(--muted);cursor:pointer;transition:color .3s}
-.switch .opt.on{color:var(--fg)}
-.switch .opt.distal.on{color:var(--edge)}
-.track{position:relative;width:52px;height:28px;border-radius:14px;background:var(--track);
-  border:none;padding:0;cursor:pointer;transition:background .3s}
-.track[aria-checked="true"]{background:var(--edge)}
-.knob{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;
-  box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .3s}
-.track[aria-checked="true"] .knob{transform:translateX(24px)}
-.track:focus-visible{outline:2px solid var(--edge);outline-offset:3px}
-
-/* every plot layer shares one box with the plot's aspect ratio */
-.stage{position:relative;width:100%;flex:1 1 auto;min-height:0;max-height:100%;aspect-ratio:600/440}
-.stage > *{position:absolute;inset:0;width:100%;height:100%}
-canvas{transition:opacity .7s ease}
-svg{overflow:visible;user-select:none}
+/* one SVG holds the switch, axes, shapes and points, so nothing can drift apart;
+   it scales uniformly to whatever frame it is embedded in (designed for 960 × 497) */
+svg{display:block;width:100%;height:100%;user-select:none}
 .axis{stroke:var(--muted);stroke-width:1.5;fill:none}
 .arrow{fill:var(--muted)}
 .axis-title{fill:var(--fg);font-size:var(--afs,20px);font-weight:800}
-.hull{fill:none;stroke:var(--hull);stroke-width:1.5;stroke-dasharray:6 5;transition:opacity .7s}
+.hull{fill:none;stroke:var(--hull);stroke-width:1.5;stroke-dasharray:6 5}
+.shape-fill{fill:var(--paint);stroke:var(--paint);stroke-width:.8;stroke-linejoin:round}
+.shape-edge{fill:none;stroke:var(--edge);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round}
 .pt{fill:var(--pt)}
-.distal{transition:opacity .7s}
+.layer{transition:opacity .7s ease}
 .distal circle{fill:var(--edge);stroke:var(--pt);stroke-width:1.2}
 .distal text{fill:var(--edge);font-size:var(--lfs,17px);font-weight:800}
+/* switch: "Normal" ⟷ "With one distal point" */
+.opt{fill:var(--muted);font-size:var(--tfs,17px);font-weight:700;cursor:pointer;transition:fill .3s}
+.opt.on{fill:var(--fg)}
+#optD.on{fill:var(--edge)}
+.sw{cursor:pointer;outline:none}
+.sw .track{fill:var(--track);transition:fill .3s}
+.sw.on .track{fill:var(--edge)}
+.sw .knob{fill:#fff;transition:transform .3s}
+.sw.on .knob{transform:translateX(24px)}
+.sw:focus-visible .track{stroke:var(--edge);stroke-width:2}
 </style>
 </head>
 <body>
-<div class="switch">
-  <span class="opt normal" id="optN">Normal</span>
-  <button class="track" id="sw" role="switch" aria-checked="false" aria-label="Show the community with one distal point"><span class="knob"></span></button>
-  <span class="opt distal" id="optD">With one distal point</span>
-</div>
-<div class="stage">
-  <canvas id="cN"></canvas>   <!-- α-shape of the normal community -->
-  <canvas id="cD"></canvas>   <!-- α-shape with the distal point added -->
-  <svg id="ov" viewBox="0 0 600 440" preserveAspectRatio="xMidYMid meet"></svg>
-</div>
+<svg id="ov" viewBox="0 0 960 497" preserveAspectRatio="xMidYMid meet"></svg>
 
 <script>
 (function(){
 "use strict";
 /* ============================================================
    Distal point vs. critical α — one switch, two states, same frame.
+   Designed for a 960 × 497 embed; everything is a single SVG, so the α-shape,
+   hull and points always stay aligned at any size.
 
    Both states use the critical α: the smallest α at which EVERY species is a vertex of
    at least one Delaunay triangle with circumradius ≤ α (no species is dropped).
-     Normal               → the original species only
+     Normal                → the original species only
      With one distal point → the same species + one distal species; that species alone
-                            sets the critical α, so the groups merge and the void fills
+                             sets the critical α, so the groups merge and the void fills
 
    Options
      distal=330,330  raw trait coords of the distal species
      state=distal    open on the right-hand state
      theme=dark|auto, bg=transparent
-     afs / lfs / tfs axis-label / "distal point" label / switch font size (px)
+     afs / lfs / tfs axis-label / "distal point" label / switch font size (px at 960 wide)
 
    Inspect from the console: window.distalToggle.state.normal / .distal
      (alpha in trait units, the species that set it, kept triangles, hull, area share)
@@ -86,11 +74,12 @@ const theme = P.get("theme");
 if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)) root.dataset.theme = "dark";
 if (P.get("bg") === "transparent") root.classList.add("transparent");
 for (const k of ["afs", "lfs", "tfs"]) if (parseFloat(P.get(k)) > 0) root.style.setProperty("--" + k, parseFloat(P.get(k)) + "px");
-const css = n => getComputedStyle(root).getPropertyValue(n).trim();
 
-/* ==================== layout ==================== */
-const W = 600, H = 440, M = {l:50, r:16, t:16, b:50};
-const X0 = M.l, X1 = W - M.r, Y0 = H - M.b, Y1 = M.t;
+/* ==================== layout (SVG user units) ==================== */
+const W = 960, H = 497;
+const SW_Y = 26;                                                // switch row centre
+const M = {l:70, r:30, t:56, b:50};                             // plot margins (top leaves room for the switch)
+const X0 = M.l, X1 = W - M.r, Y0 = H - M.b, Y1 = M.t;           // plot area (Y0 = bottom)
 
 /* ==================== data (same species as eraser.html) ==================== */
 const RAW = [
@@ -150,8 +139,9 @@ const RAW = [
 const parseXY = v => { if (!v) return null; const a = v.split(",").map(Number); return a.length === 2 && a.every(isFinite) ? a : null; };
 const DISTAL = parseXY(P.get("distal")) || [330, 330];
 
-// one frame for both states (it includes the distal point) so nothing moves when you switch
-const PAD = 26, FRAME = RAW.concat([DISTAL]);
+// one frame for both states (it includes the distal point) so nothing moves when you switch;
+// equal x/y scaling, centred in the plot area
+const PAD = 14, FRAME = RAW.concat([DISTAL]);
 const rx0 = Math.min(...FRAME.map(p => p[0])) - PAD, rx1 = Math.max(...FRAME.map(p => p[0])) + PAD;
 const ry0 = Math.min(...FRAME.map(p => p[1])) - PAD, ry1 = Math.max(...FRAME.map(p => p[1])) + PAD;
 const S = Math.min((X1 - X0) / (rx1 - rx0), (Y0 - Y1) / (ry1 - ry0));
@@ -168,7 +158,8 @@ function convexHull(pts){
   up.pop(); lo.pop(); return lo.concat(up);
 }
 const polyArea = poly => Math.abs(poly.reduce((s, p, k) => { const q = poly[(k+1) % poly.length]; return s + p[0]*q[1] - q[0]*p[1]; }, 0)) / 2;
-const pathOf = poly => "M" + poly.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join("L") + "Z";
+const f1 = v => v.toFixed(1);
+const pathOf = poly => "M" + poly.map(p => f1(p[0]) + "," + f1(p[1])).join("L") + "Z";
 function circum(a, b, c){
   const d = 2*(a[0]*(b[1]-c[1]) + b[0]*(c[1]-a[1]) + c[0]*(a[1]-b[1]));
   const a2 = a[0]*a[0]+a[1]*a[1], b2 = b[0]*b[0]+b[1]*b[1], c2 = c[0]*c[0]+c[1]*c[1];
@@ -202,10 +193,10 @@ function criticalAlpha(tris, n){
 }
 
 /* ==================== one state = one community analysed end to end ==================== */
+// Delaunay and circumradii are computed in trait units, then mapped to the screen for drawing.
 function analyse(raw){
-  const pts = raw.map(p => toScreen(p[0], p[1]));
-  const tris = delaunay(pts);
-  const crit = criticalAlpha(tris, pts.length);
+  const tris = delaunay(raw);
+  const crit = criticalAlpha(tris, raw.length);
   const alpha = crit.alpha * 1.0001;
   const kept = tris.filter(t => t.c.r <= alpha);
   const count = new Map();
@@ -214,31 +205,14 @@ function analyse(raw){
     count.set(key, (count.get(key) || 0) + 1);
   }
   const boundary = [...count].filter(([, c]) => c === 1).map(([k]) => k.split(",").map(Number));
-  const hull = convexHull(pts);
-  const area = kept.reduce((s, t) => s + polyArea(t.v.map(i => pts[i])), 0);
-  return {pts, kept, boundary, hull, alphaTrait: alpha / S, setBy: raw[crit.who],
-          shareOfHull: area / polyArea(hull)};
+  const hull = convexHull(raw);
+  const area = kept.reduce((s, t) => s + polyArea(t.v.map(i => raw[i])), 0);
+  return {raw, pts: raw.map(p => toScreen(p[0], p[1])), kept, boundary, hull,
+          alpha, setBy: raw[crit.who], shareOfHull: area / polyArea(hull)};
 }
 const state = {normal: analyse(RAW), distal: analyse(RAW.concat([DISTAL]))};
 
-/* ==================== draw each state's α-shape on its own canvas ==================== */
-const SCALE = Math.min(3, (window.devicePixelRatio || 1) * 2);
-function drawShape(canvas, s){
-  canvas.width = W*SCALE; canvas.height = H*SCALE;
-  const ctx = canvas.getContext("2d"); ctx.scale(SCALE, SCALE);
-  ctx.fillStyle = css("--paint"); ctx.strokeStyle = css("--paint"); ctx.lineWidth = .8;
-  for (const t of s.kept){
-    const [a, b, c] = t.v.map(i => s.pts[i]);
-    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(c[0], c[1]); ctx.closePath(); ctx.fill(); ctx.stroke();
-  }
-  ctx.strokeStyle = css("--edge"); ctx.lineWidth = 2.2; ctx.lineJoin = "round"; ctx.beginPath();
-  for (const [i, j] of s.boundary){ ctx.moveTo(s.pts[i][0], s.pts[i][1]); ctx.lineTo(s.pts[j][0], s.pts[j][1]); }
-  ctx.stroke();
-}
-const cN = document.getElementById("cN"), cD = document.getElementById("cD");
-drawShape(cN, state.normal); drawShape(cD, state.distal);
-
-/* ==================== overlay: axes, hulls, species, distal point ==================== */
+/* ==================== SVG building ==================== */
 const NS = "http://www.w3.org/2000/svg", ov = document.getElementById("ov");
 function el(tag, attrs, parent){
   const e = document.createElementNS(NS, tag);
@@ -246,6 +220,18 @@ function el(tag, attrs, parent){
   if (parent) parent.appendChild(e);
   return e;
 }
+// α-shape layer: filled triangles (one path) + boundary edges (one path) + dashed convex hull
+function shapeLayer(s){
+  const g = el("g", {class:"layer"}, ov);
+  const tri = s.kept.map(t => { const [a, b, c] = t.v.map(i => s.pts[i]);
+    return `M${f1(a[0])},${f1(a[1])}L${f1(b[0])},${f1(b[1])}L${f1(c[0])},${f1(c[1])}Z`; }).join("");
+  el("path", {d:tri, class:"shape-fill"}, g);
+  el("path", {d:s.boundary.map(([i, j]) => `M${f1(s.pts[i][0])},${f1(s.pts[i][1])}L${f1(s.pts[j][0])},${f1(s.pts[j][1])}`).join(""),
+    class:"shape-edge"}, g);
+  el("path", {d:pathOf(s.hull.map(p => toScreen(p[0], p[1]))), class:"hull"}, g);
+  return g;
+}
+// axes
 {
   const g = el("g", {}, ov);
   el("path", {d:`M${X0},${Y1-6}V${Y0}H${X1+6}`, class:"axis"}, g);
@@ -253,34 +239,42 @@ function el(tag, attrs, parent){
   el("path", {d:`M${X0},${Y1-12}l-5,9h10z`, class:"arrow"}, g);
   el("text", {x:(X0+X1)/2, y:H-12, "text-anchor":"middle", class:"axis-title"}, g).textContent = "PC1";
   el("text", {x:0, y:0, "text-anchor":"middle", class:"axis-title",
-    transform:`translate(${X0-18},${(Y0+Y1)/2}) rotate(-90)`}, g).textContent = "PC2";
+    transform:`translate(${X0-22},${(Y0+Y1)/2}) rotate(-90)`}, g).textContent = "PC2";
 }
-const hullN = el("path", {d:pathOf(state.normal.hull), class:"hull"}, ov);
-const hullD = el("path", {d:pathOf(state.distal.hull), class:"hull"}, ov);
+const layerN = shapeLayer(state.normal), layerD = shapeLayer(state.distal);
+// species (shared by both states)
 {
   const g = el("g", {}, ov);
-  state.normal.pts.forEach(p => el("circle", {cx:p[0].toFixed(1), cy:p[1].toFixed(1), r:2.6, class:"pt"}, g));
+  state.normal.pts.forEach(p => el("circle", {cx:f1(p[0]), cy:f1(p[1]), r:2.6, class:"pt"}, g));
 }
+// distal point + label, only visible in the right-hand state
 const dp = toScreen(DISTAL[0], DISTAL[1]);
-const distalG = el("g", {class:"distal"}, ov);
-el("circle", {cx:dp[0].toFixed(1), cy:dp[1].toFixed(1), r:5.5}, distalG);
-// label sits on whichever side of the point has more room
-const leftRoom = dp[0] - X0 > X1 - dp[0];
-el("text", {x:(dp[0] + (leftRoom ? -12 : 12)).toFixed(1), y:(dp[1] + 5).toFixed(1),
-  "text-anchor": leftRoom ? "end" : "start"}, distalG).textContent = "distal point";
+const distalG = el("g", {class:"layer distal"}, ov);
+el("circle", {cx:f1(dp[0]), cy:f1(dp[1]), r:5.5}, distalG);
+const leftRoom = dp[0] - X0 > X1 - dp[0];                       // label on the roomier side
+el("text", {x:f1(dp[0] + (leftRoom ? -12 : 12)), y:f1(dp[1] + 6), "text-anchor": leftRoom ? "end" : "start"}, distalG).textContent = "distal point";
 
-/* ==================== switch ==================== */
-const sw = document.getElementById("sw"), optN = document.getElementById("optN"), optD = document.getElementById("optD");
+/* ==================== switch (inside the SVG, centred on top) ==================== */
+const swG = el("g", {class:"sw", role:"switch", tabindex:0, "aria-checked":"false",
+  "aria-label":"Show the community with one distal point", transform:`translate(${W/2 - 26},${SW_Y - 14})`}, ov);
+el("rect", {width:52, height:28, rx:14, class:"track"}, swG);
+el("circle", {cx:14, cy:14, r:11, class:"knob"}, swG);
+const optN = el("text", {id:"optN", x:W/2 - 38, y:SW_Y, "text-anchor":"end", "dominant-baseline":"central", class:"opt"}, ov);
+optN.textContent = "Normal";
+const optD = el("text", {id:"optD", x:W/2 + 38, y:SW_Y, "text-anchor":"start", "dominant-baseline":"central", class:"opt"}, ov);
+optD.textContent = "With one distal point";
+
 let showDistal = false;
 function set(d){
   showDistal = !!d;
-  sw.setAttribute("aria-checked", showDistal);
+  swG.classList.toggle("on", showDistal); swG.setAttribute("aria-checked", showDistal);
   optN.classList.toggle("on", !showDistal); optD.classList.toggle("on", showDistal);
-  cN.style.opacity = showDistal ? 0 : 1;     cD.style.opacity = showDistal ? 1 : 0;
-  hullN.style.opacity = showDistal ? 0 : 1;  hullD.style.opacity = showDistal ? 1 : 0;
+  layerN.style.opacity = showDistal ? 0 : 1;
+  layerD.style.opacity = showDistal ? 1 : 0;
   distalG.style.opacity = showDistal ? 1 : 0;
 }
-sw.addEventListener("click", () => set(!showDistal));
+swG.addEventListener("click", () => set(!showDistal));
+swG.addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter"){ e.preventDefault(); set(!showDistal); } });
 optN.addEventListener("click", () => set(false));
 optD.addEventListener("click", () => set(true));
 set(P.get("state") === "distal");
