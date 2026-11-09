@@ -7,42 +7,45 @@
 <style>
 :root{
   --bg:#ffffff; --fg:#1f2328; --muted:#8a919a;
-  --paint:#f6caa9; --edge:#de8550; --pt:#1f2328; --eraser:#1f2328;
+  --paper:#fbe6d6; --paint:#f6caa9; --edge:#de8550; --pt:#1f2328; --eraser:#1f2328; --hull:#9aa3ad;
 }
 :root[data-theme="dark"]{
   --bg:#111418; --fg:#e6e8eb; --muted:#8b939c;
-  --paint:#7a4e33; --edge:#f0a46f; --pt:#e6e8eb; --eraser:#e6e8eb;
+  --paper:#4a3426; --paint:#7a4e33; --edge:#f0a46f; --pt:#e6e8eb; --eraser:#e6e8eb; --hull:#5b636d;
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
   font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 html.transparent,html.transparent body{background:transparent}
 body{display:flex;align-items:center;justify-content:center;padding:8px}
-/* all layers share one box with the plot's aspect ratio */
+/* every layer shares one box with the plot's aspect ratio */
 .stage{position:relative;width:100%;max-height:100%;aspect-ratio:600/440}
 .stage > *{position:absolute;inset:0;width:100%;height:100%}
-#paint{transition:opacity .9s ease}
-#shape{opacity:0;transition:opacity .9s ease}
+canvas{transition:opacity .8s ease}
 svg{overflow:visible;user-select:none}
 
 .axis{stroke:var(--muted);stroke-width:1.5;fill:none}
 .arrow{fill:var(--muted)}
 .axis-title{fill:var(--fg);font-size:var(--afs,20px);font-weight:800}
+.hull{fill:none;stroke:var(--hull);stroke-width:1.5;stroke-dasharray:6 5}
 .pt{fill:var(--pt)}
-.eraser circle{fill:none;stroke:var(--eraser);stroke-width:2}
+.eraser circle.disc{fill:rgba(255,255,255,.35);stroke:var(--eraser);stroke-width:2.2}
 .eraser line{stroke:var(--eraser);stroke-width:1.5}
-.eraser text{fill:var(--eraser);font-size:16px;font-weight:800;font-style:italic}
-.eraser{transition:opacity .4s}
+.eraser text{fill:var(--eraser);font-size:17px;font-weight:800;font-style:italic}
+.eraser{transition:opacity .25s}
 .label{fill:var(--muted);font-size:var(--lfs,17px);font-weight:700;font-style:italic;opacity:0;transition:opacity .8s}
 .label.on{opacity:1}
 .tag{fill:var(--edge);font-size:var(--lfs,17px);font-weight:800;opacity:0;transition:opacity .8s}
 .tag.on{opacity:1}
+.readout{fill:var(--fg);font-size:var(--rfs,17px);font-weight:800;font-variant-numeric:tabular-nums}
+.readout .num{fill:var(--edge)}
 </style>
 </head>
 <body>
-<div class="stage" id="stage">
-  <canvas id="paint"></canvas>
-  <canvas id="shape"></canvas>
+<div class="stage">
+  <canvas id="paint"></canvas>   <!-- shaded convex hull, erased by the rolling disc -->
+  <canvas id="hullc"></canvas>   <!-- the α-hull: everything the disc can reach erased -->
+  <canvas id="shape"></canvas>   <!-- final straight-edged α-shape -->
   <svg id="ov" viewBox="0 0 600 440" preserveAspectRatio="xMidYMid meet"></svg>
 </div>
 
@@ -50,17 +53,22 @@ svg{overflow:visible;user-select:none}
 (function(){
 "use strict";
 /* ============================================================
-   Eraser analogy for the α-shape (proposal Fig. 2a).
-   Play: a disc of radius α sweeps the trait space, erasing the shading
-   everywhere it fits without touching a species; then the curved leftover
-   (the α-hull) is replaced by the straight-edged α-shape.
+   Eraser analogy for the α-shape (proposal Fig. 2a), on the alpha-shape dataset.
+
+   Story (one Play press):
+     1. the convex hull is shaded — what FRic counts as occupied
+     2. a disc of radius α rolls around the outside of each group, pressing
+        against the outermost species and erasing as it goes
+     3. it drops into the ring's void and rolls around inside it
+     4. everywhere else it fits fades away → the curved α-hull
+     5. the α-hull becomes the straight-edged α-shape; readout = α-shape / hull area
 
    Options
-     alpha=20      eraser radius in trait units (works for ~12–32)
-     speed=1       animation speed
-     channel=...   shared with controls.html (default "eraser")
-     labels=0      hide the "void" / "gap" / "α-shape" labels
-     afs / lfs     axis-label / label font size (px)
+     alpha=20     eraser radius in trait units (~12–32 keeps the three groups intact)
+     speed=1      animation speed
+     channel=...  shared with controls.html (default "eraser")
+     labels=0     hide "void" / "gap" / "α-shape" labels
+     afs / lfs / rfs   axis-label / label / readout font size (px)
      theme, bg=transparent, autoplay=1
    ============================================================ */
 const P = new URLSearchParams(location.search);
@@ -70,15 +78,15 @@ const root = document.documentElement;
 const theme = P.get("theme");
 if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)) root.dataset.theme = "dark";
 if (P.get("bg") === "transparent") root.classList.add("transparent");
-for (const k of ["afs", "lfs"]) if (parseFloat(P.get(k)) > 0) root.style.setProperty("--" + k, parseFloat(P.get(k)) + "px");
+for (const k of ["afs", "lfs", "rfs"]) if (parseFloat(P.get(k)) > 0) root.style.setProperty("--" + k, parseFloat(P.get(k)) + "px");
 const css = n => getComputedStyle(root).getPropertyValue(n).trim();
 
-/* ==================== geometry ==================== */
+/* ==================== layout ==================== */
 const W = 600, H = 440, M = {l:50, r:16, t:16, b:50};
-const X0 = M.l, X1 = W - M.r, Y0 = H - M.b, Y1 = M.t;   // plot area (y0 = bottom)
+const X0 = M.l, X1 = W - M.r, Y0 = H - M.b, Y1 = M.t;      // plot area (Y0 = bottom)
 
-/* ==================== points: the alpha-shape dataset (same as probabilistic-limit.html) ==================== */
-// Raw trait coordinates; screen y grows with raw y, matching that page (flipped so up = larger trait value).
+/* ==================== data: the alpha-shape dataset (same as probabilistic-limit.html) ==================== */
+// Raw trait coordinates; screen y grows with raw y, matching that page.
 const RAW = [
 [77.57,51.45],[66.06,40.17],[83.12,70.97],[86.51,31.58],[81.34,12.37],[97.35,68.04],
 [109.56,59.99],[104.43,68.39],[95.65,36.33],[121.6,43.45],[76.72,47.4],[96.39,59.3],
@@ -133,29 +141,46 @@ const RAW = [
 [166.74,253.02],[222.52,255.3],[131.14,237.95],[128.67,196.96],[127.36,186.45],[158.24,233.04],
 [264.54,217.12],[170.19,225.11],[269.45,221.28],[237.49,274.14],[207.27,273.29],[272.03,173.2]
 ];
-// fit the data into the plot area with equal x/y scaling, centred
-const PAD = 22;
+// fit into the plot area with equal x/y scaling, centred
+const PAD = 26;
 const rx0 = Math.min(...RAW.map(p => p[0])) - PAD, rx1 = Math.max(...RAW.map(p => p[0])) + PAD;
 const ry0 = Math.min(...RAW.map(p => p[1])) - PAD, ry1 = Math.max(...RAW.map(p => p[1])) + PAD;
 const S = Math.min((X1 - X0) / (rx1 - rx0), (Y0 - Y1) / (ry1 - ry0));
 const OX = X0 + ((X1 - X0) - (rx1 - rx0) * S) / 2, OY = Y1 + ((Y0 - Y1) - (ry1 - ry0) * S) / 2;
 const toScreen = (x, y) => [OX + (x - rx0) * S, OY + (y - ry0) * S];
 const PTS = RAW.map(p => toScreen(p[0], p[1]));
-// eraser radius: given in trait units (?alpha=), default 20 — any value ~12–32 keeps the three
-// groups intact while still fitting inside the ring's void (largest empty circle ≈ 33 units)
-const ALPHA = (parseFloat(P.get("alpha")) || 20) * S;
-const VOID_C = toScreen(196, 202);                  // centre of the ring's void
-const GAP_C  = toScreen(200, 48);                   // between the two small clusters
-const SHAPE_TAG = toScreen(108, 262);               // label position, beside the ring
-// distance from (x,y) to the nearest species
+const ALPHA = (parseFloat(P.get("alpha")) || 20) * S;          // eraser radius on screen
+const VOID_C = toScreen(196, 202);                              // centre of the ring's void
+const GAP_C  = toScreen(200, 48);                               // between the two small clusters
+
+/* ==================== geometry helpers ==================== */
+const cross = (o, a, b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
+function convexHull(pts){
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const lo = [], up = [];
+  for (const q of p){ while (lo.length >= 2 && cross(lo[lo.length-2], lo[lo.length-1], q) <= 0) lo.pop(); lo.push(q); }
+  for (let i = p.length - 1; i >= 0; i--){ const q = p[i]; while (up.length >= 2 && cross(up[up.length-2], up[up.length-1], q) <= 0) up.pop(); up.push(q); }
+  up.pop(); lo.pop(); return lo.concat(up);
+}
+const polyArea = poly => Math.abs(poly.reduce((s, p, k) => { const q = poly[(k+1) % poly.length]; return s + p[0]*q[1] - q[0]*p[1]; }, 0)) / 2;
+const pathOf = poly => "M" + poly.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join("L") + "Z";
+function pointInPoly(pt, poly){
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++){
+    const a = poly[i], b = poly[j];
+    if ((a[1] > pt[1]) !== (b[1] > pt[1]) && pt[0] < (b[0]-a[0]) * (pt[1]-a[1]) / (b[1]-a[1]) + a[0]) inside = !inside;
+  }
+  return inside;
+}
 function nearest(x, y){
   let m = Infinity;
   for (const p of PTS){ const d = (p[0]-x)**2 + (p[1]-y)**2; if (d < m) m = d; }
   return Math.sqrt(m);
 }
-const fits = (x, y) => nearest(x, y) >= ALPHA;      // the eraser fits here without touching a species
+const HULL = convexHull(PTS);
+const HULL_AREA = polyArea(HULL);
 
-/* ==================== Delaunay (Bowyer–Watson) → α-shape ==================== */
+/* ==================== α-shape via Delaunay (Bowyer–Watson) ==================== */
 function circum(a, b, c){
   const d = 2*(a[0]*(b[1]-c[1]) + b[0]*(c[1]-a[1]) + c[0]*(a[1]-b[1]));
   const a2 = a[0]*a[0]+a[1]*a[1], b2 = b[0]*b[0]+b[1]*b[1], c2 = c[0]*c[0]+c[1]*c[1];
@@ -164,10 +189,8 @@ function circum(a, b, c){
   return {x:ux, y:uy, r:Math.hypot(a[0]-ux, a[1]-uy)};
 }
 function delaunay(pts){
-  const S = 1e4, all = pts.concat([[-S, -S], [S*2, -S], [-S, S*2]]);
-  const n = pts.length;
-  let tris = [{v:[n, n+1, n+2]}];
-  tris[0].c = circum(all[n], all[n+1], all[n+2]);
+  const BIG = 1e4, all = pts.concat([[-BIG, -BIG], [BIG*2, -BIG], [-BIG, BIG*2]]), n = pts.length;
+  let tris = [{v:[n, n+1, n+2], c:circum(all[n], all[n+1], all[n+2])}];
   for (let i = 0; i < n; i++){
     const p = all[i], bad = [], keep = [];
     for (const t of tris) ((p[0]-t.c.x)**2 + (p[1]-t.c.y)**2 < t.c.r**2 ? bad : keep).push(t);
@@ -177,52 +200,97 @@ function delaunay(pts){
       edges.set(key, edges.has(key) ? null : [a, b]);
     }
     tris = keep;
-    for (const e of edges.values()) if (e){
-      const t = {v:[e[0], e[1], i]}; t.c = circum(all[e[0]], all[e[1]], p); tris.push(t);
-    }
+    for (const e of edges.values()) if (e) tris.push({v:[e[0], e[1], i], c:circum(all[e[0]], all[e[1]], p)});
   }
   return tris.filter(t => t.v.every(v => v < n));
 }
-const TRIS = delaunay(PTS);
-const KEPT = TRIS.filter(t => t.c.r <= ALPHA);      // α-shape = union of triangles with circumradius ≤ α
-// boundary edges = edges used by exactly one kept triangle
+const KEPT = delaunay(PTS).filter(t => t.c.r <= ALPHA);           // triangles with circumradius ≤ α
 const edgeCount = new Map();
 for (const t of KEPT) for (let k = 0; k < 3; k++){
   const a = t.v[k], b = t.v[(k+1)%3], key = a < b ? a+","+b : b+","+a;
   edgeCount.set(key, (edgeCount.get(key) || 0) + 1);
 }
 const BOUNDARY = [...edgeCount].filter(([, c]) => c === 1).map(([k]) => k.split(",").map(Number));
+const SHAPE_AREA = KEPT.reduce((s, t) => s + polyArea(t.v.map(i => PTS[i])), 0);
+const SHAPE_PCT = Math.round(100 * SHAPE_AREA / HULL_AREA);
+
+/* ==================== the paths the eraser rolls along ==================== */
+// Where the disc touches species but doesn't overlap them, its centre is exactly α from the
+// nearest species: the level set nearest(x) = α. Trace it with marching squares and stitch the
+// segments into closed loops — one around each group's outside, one inside the void.
+const G = 2.5;
+const gx0 = X0 - ALPHA - 10, gy0 = Y1 - ALPHA - 10;
+const NX = Math.ceil((X1 - X0 + 2*ALPHA + 20) / G), NY = Math.ceil((Y0 - Y1 + 2*ALPHA + 20) / G);
+const F = [];
+for (let j = 0; j <= NY; j++){ F.push(new Float32Array(NX + 1)); for (let i = 0; i <= NX; i++) F[j][i] = nearest(gx0 + i*G, gy0 + j*G) - ALPHA; }
+function edgePoint(key){
+  const [t, i, j] = key.split(":"); const I = +i, J = +j;
+  if (t === "h"){ const a = F[J][I], b = F[J][I+1], s = a / (a - b); return [gx0 + (I + s)*G, gy0 + J*G]; }
+  const a = F[J][I], b = F[J+1][I], s = a / (a - b); return [gx0 + I*G, gy0 + (J + s)*G];
+}
+const adj = new Map();
+const link = (a, b) => { (adj.get(a) || adj.set(a, []).get(a)).push(b); (adj.get(b) || adj.set(b, []).get(b)).push(a); };
+for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++){
+  const v = [F[j][i], F[j][i+1], F[j+1][i+1], F[j+1][i]];
+  const E = [`h:${i}:${j}`, `v:${i+1}:${j}`, `h:${i}:${j+1}`, `v:${i}:${j}`];
+  const c = [];
+  for (let k = 0; k < 4; k++) if ((v[k] >= 0) !== (v[(k+1)%4] >= 0)) c.push(E[k]);
+  if (c.length === 2) link(c[0], c[1]);
+  else if (c.length === 4){ link(c[0], c[1]); link(c[2], c[3]); }
+}
+const LOOPS = [];
+{
+  const seen = new Set();
+  for (const start of adj.keys()){
+    if (seen.has(start)) continue;
+    const loop = []; let prev = null, cur = start;
+    while (cur && !seen.has(cur)){
+      seen.add(cur); loop.push(edgePoint(cur));
+      const nb = (adj.get(cur) || []).filter(k => k !== prev && !seen.has(k));
+      prev = cur; cur = nb[0];
+    }
+    // resample to even spacing so the disc moves at a steady pace
+    const pts = [loop[0]]; let acc = 0;
+    for (let k = 1; k <= loop.length; k++){
+      const a = loop[k-1], b = loop[k % loop.length], d = Math.hypot(b[0]-a[0], b[1]-a[1]);
+      acc += d; if (acc >= 1.5){ pts.push(b); acc = 0; }
+    }
+    const len = pts.length * 1.5;
+    if (len > 60) LOOPS.push({pts, len, isVoid: pointInPoly(VOID_C, pts) && polyArea(pts) < HULL_AREA*.2});
+  }
+}
+// roll around the groups first (shortest outline first), the void last
+LOOPS.sort((a, b) => (a.isVoid - b.isVoid) || (a.len - b.len));
 
 /* ==================== canvases ==================== */
-const paint = document.getElementById("paint"), shape = document.getElementById("shape");
+const paint = document.getElementById("paint"), hullc = document.getElementById("hullc"), shape = document.getElementById("shape");
 const SCALE = Math.min(3, (window.devicePixelRatio || 1) * 2);
-for (const c of [paint, shape]){ c.width = W*SCALE; c.height = H*SCALE; }
-const pctx = paint.getContext("2d"), sctx = shape.getContext("2d");
-pctx.scale(SCALE, SCALE); sctx.scale(SCALE, SCALE);
-
-function fillPaper(){                               // the whole trait space shaded in
-  pctx.globalCompositeOperation = "source-over";
-  pctx.clearRect(0, 0, W, H);
-  pctx.fillStyle = css("--paint");
-  pctx.fillRect(X0, Y1, X1 - X0, Y0 - Y1);
-  pctx.globalCompositeOperation = "destination-out";
+const ctxs = [paint, hullc, shape].map(c => { c.width = W*SCALE; c.height = H*SCALE; const x = c.getContext("2d"); x.scale(SCALE, SCALE); return x; });
+const [pctx, hctx, sctx] = ctxs;
+const discAt = (ctx, x, y) => { ctx.beginPath(); ctx.arc(x, y, ALPHA, 0, 2*Math.PI); ctx.fill(); };
+function shadeHull(ctx){
+  ctx.globalCompositeOperation = "source-over";
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = css("--paper");
+  ctx.beginPath(); HULL.forEach((p, k) => k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); ctx.fill();
+  ctx.globalCompositeOperation = "destination-out";
 }
-function erase(x, y){ pctx.beginPath(); pctx.arc(x, y, ALPHA, 0, 2*Math.PI); pctx.fill(); }
-function drawShape(){                               // final straight-edged α-shape
-  sctx.clearRect(0, 0, W, H);
-  sctx.fillStyle = css("--paint"); sctx.strokeStyle = css("--paint"); sctx.lineWidth = .8;
-  for (const t of KEPT){
-    const [a, b, c] = t.v.map(i => PTS[i]);
-    sctx.beginPath(); sctx.moveTo(a[0], a[1]); sctx.lineTo(b[0], b[1]); sctx.lineTo(c[0], c[1]); sctx.closePath();
-    sctx.fill(); sctx.stroke();
-  }
-  sctx.strokeStyle = css("--edge"); sctx.lineWidth = 2.2; sctx.lineJoin = "round";
-  sctx.beginPath();
-  for (const [i, j] of BOUNDARY){ sctx.moveTo(PTS[i][0], PTS[i][1]); sctx.lineTo(PTS[j][0], PTS[j][1]); }
-  sctx.stroke();
+// α-hull layer: the hull with every reachable disc position erased (computed once)
+shadeHull(hctx);
+for (let y = Y1 - ALPHA; y <= Y0 + ALPHA; y += 2)
+  for (let x = X0 - ALPHA; x <= X1 + ALPHA; x += 2)
+    if (nearest(x, y) >= ALPHA) discAt(hctx, x, y);
+// final α-shape layer
+sctx.fillStyle = css("--paint"); sctx.strokeStyle = css("--paint"); sctx.lineWidth = .8;
+for (const t of KEPT){
+  const [a, b, c] = t.v.map(i => PTS[i]);
+  sctx.beginPath(); sctx.moveTo(a[0], a[1]); sctx.lineTo(b[0], b[1]); sctx.lineTo(c[0], c[1]); sctx.closePath(); sctx.fill(); sctx.stroke();
 }
+sctx.strokeStyle = css("--edge"); sctx.lineWidth = 2.2; sctx.lineJoin = "round"; sctx.beginPath();
+for (const [i, j] of BOUNDARY){ sctx.moveTo(PTS[i][0], PTS[i][1]); sctx.lineTo(PTS[j][0], PTS[j][1]); }
+sctx.stroke();
 
-/* ==================== overlay: axes, labels, points, eraser ==================== */
+/* ==================== overlay ==================== */
 const NS = "http://www.w3.org/2000/svg";
 const ov = document.getElementById("ov");
 function el(tag, attrs, parent){
@@ -240,89 +308,102 @@ function el(tag, attrs, parent){
   el("text", {x:0, y:0, "text-anchor":"middle", class:"axis-title",
     transform:`translate(${X0-18},${(Y0+Y1)/2}) rotate(-90)`}, g).textContent = "PC2";
 }
+el("path", {d:pathOf(HULL), class:"hull"}, ov);                 // convex hull outline, always shown
 const labels = [];
 if (SHOW_LABELS){
   const mk = (pos, txt, cls, anchor) => { const t = el("text", {x:pos[0], y:pos[1], "text-anchor":anchor || "middle", class:cls}, ov); t.textContent = txt; labels.push(t); };
   mk([VOID_C[0], VOID_C[1] + 6], "void", "label");
   mk([GAP_C[0], GAP_C[1] + 6], "gap", "label");
-  mk(SHAPE_TAG, "α-shape", "tag", "end");
 }
 {
   const g = el("g", {}, ov);
   PTS.forEach(p => el("circle", {cx:p[0].toFixed(1), cy:p[1].toFixed(1), r:2.6, class:"pt"}, g));
 }
+const readout = el("text", {x:X1 - 4, y:Y0 - 12, "text-anchor":"end", class:"readout"}, ov);
+function setReadout(final){
+  readout.textContent = "";
+  if (final){
+    readout.appendChild(document.createTextNode("α-shape = "));
+    const n = el("tspan", {class:"num"}, readout); n.textContent = SHAPE_PCT + "%";
+    readout.appendChild(document.createTextNode(" of convex hull"));
+  } else readout.textContent = "convex hull = 100%";
+}
 const eraser = el("g", {class:"eraser", opacity:0}, ov);
-el("circle", {cx:0, cy:0, r:ALPHA}, eraser);
-el("line", {x1:0, y1:0, x2:ALPHA*Math.cos(-.6), y2:ALPHA*Math.sin(-.6)}, eraser);
-el("text", {x:ALPHA*Math.cos(-.6)*.45 - 2, y:ALPHA*Math.sin(-.6)*.45 - 5}, eraser).textContent = "α";
-const moveEraser = (x, y) => eraser.setAttribute("transform", `translate(${x.toFixed(1)},${y.toFixed(1)})`);
+el("circle", {cx:0, cy:0, r:ALPHA, class:"disc"}, eraser);
+el("line", {x1:0, y1:0, x2:ALPHA*Math.cos(-.7), y2:ALPHA*Math.sin(-.7)}, eraser);
+el("text", {x:ALPHA*Math.cos(-.7)*.5 - 13, y:ALPHA*Math.sin(-.7)*.5 - 2}, eraser).textContent = "α";
+const moveEraser = p => eraser.setAttribute("transform", `translate(${p[0].toFixed(1)},${p[1].toFixed(1)})`);
+const showEraser = on => eraser.setAttribute("opacity", on ? 1 : 0);
 
-/* ==================== sweep path ==================== */
-// Visible sweep: back-and-forth rows; the eraser only stops where it fits (it hops over species).
-const SWEEP = [];
-{
-  const rowGap = ALPHA * .9, step = 4;
-  let dir = 1;
-  for (let y = Y1 - ALPHA*.4; y <= Y0 + ALPHA*.4; y += rowGap){
-    const xs = [];
-    for (let x = X0 - ALPHA*.4; x <= X1 + ALPHA*.4; x += step) xs.push(x);
-    if (dir < 0) xs.reverse();
-    for (const x of xs) if (fits(x, y)) SWEEP.push([x, y]);
-    dir = -dir;
+/* ==================== timeline ==================== */
+// A list of steps; each step's update(dt) returns true when it's finished. Paused = no updates.
+const ROLL = .20;                        // eraser speed along a loop (px per ms, × speed)
+function buildSteps(){
+  const steps = [];
+  const wait = ms => { let t = 0; return {update: dt => (t += dt) >= ms}; };
+  const once = fn => ({update: () => { fn(); return true; }});
+  steps.push(wait(500));
+  for (const L of LOOPS){
+    // place the disc at the start of the loop, then roll it all the way round
+    steps.push(once(() => { moveEraser(L.pts[0]); showEraser(true); }));
+    steps.push(wait(L.isVoid ? 650 : 350));
+    let pos = 0;
+    steps.push({update: dt => {
+      const to = Math.min(L.pts.length - 1, Math.floor(pos + ROLL * dt / 1.5));
+      for (let k = Math.floor(pos); k <= to; k++) discAt(pctx, L.pts[k][0], L.pts[k][1]);
+      pos = to + 1; moveEraser(L.pts[Math.min(to, L.pts.length - 1)]);
+      return pos >= L.pts.length;
+    }});
+    steps.push(wait(250));
+    steps.push(once(() => showEraser(false)));
+    steps.push(wait(300));
   }
+  // everywhere else the disc fits → the curved α-hull
+  steps.push(once(() => { paint.style.opacity = 0; hullc.style.opacity = 1; }));
+  steps.push(wait(1300));
+  // straighten the curved edges → the α-shape
+  steps.push(once(() => { hullc.style.opacity = 0; shape.style.opacity = 1; labels.forEach(l => l.classList.add("on")); setReadout(true); }));
+  steps.push(wait(900));
+  return steps;
 }
-// Clean-up: every remaining spot the eraser could reach (fine grid), so the leftover is exactly the α-hull.
-const CLEAN = [];
-for (let y = Y1 - ALPHA; y <= Y0 + ALPHA; y += 2)
-  for (let x = X0 - ALPHA; x <= X1 + ALPHA; x += 2)
-    if (fits(x, y)) CLEAN.push([x, y]);
 
-/* ==================== animation ==================== */
-let idx = 0, playing = false, done = false, runId = 0, raf = 0;
-const PER_FRAME = 9;                                 // sweep positions per frame (× speed)
-
-function resetAll(){
-  runId++; playing = false; done = false; idx = 0; cancelAnimationFrame(raf);
-  fillPaper(); paint.style.opacity = 1; shape.style.opacity = 0;
-  eraser.setAttribute("opacity", 0);
-  labels.forEach(l => l.classList.remove("on"));
-  postStatus();
-}
-function showFinal(){
-  for (const [x, y] of CLEAN) erase(x, y);           // finish the α-hull exactly
-  eraser.setAttribute("opacity", 0);
-  drawShape();
-  paint.style.opacity = 0; shape.style.opacity = 1;  // curved α-hull → straight-edged α-shape
-  labels.forEach(l => l.classList.add("on"));
-  done = true; playing = false; postStatus();
-}
-function frame(){
+let steps = [], si = 0, playing = false, done = false, last = 0, raf = 0;
+function frame(now){
   if (!playing) return;
-  const n = Math.max(1, Math.round(PER_FRAME * SPEED));
-  for (let k = 0; k < n && idx < SWEEP.length; k++, idx++) erase(SWEEP[idx][0], SWEEP[idx][1]);
-  if (idx < SWEEP.length){
-    moveEraser(SWEEP[idx][0], SWEEP[idx][1]);
-    raf = requestAnimationFrame(frame);
-  } else {
-    // sweep finished: clean up, park the eraser in the void for a beat, then show the α-shape
-    for (const [x, y] of CLEAN) erase(x, y);
-    moveEraser(VOID_C[0], VOID_C[1]);
-    const my = runId;
-    setTimeout(() => { if (my === runId && playing) showFinal(); }, 1100 / SPEED);
-  }
+  const dt = Math.min(64, now - last) * SPEED; last = now;
+  while (si < steps.length && steps[si].update(dt)) si++;
+  if (si >= steps.length){ playing = false; done = true; postStatus(); return; }
+  raf = requestAnimationFrame(frame);
+}
+function resetAll(){
+  playing = false; done = false; cancelAnimationFrame(raf);
+  shadeHull(pctx);
+  for (const c of [paint, hullc, shape]) c.style.transition = "none";
+  paint.style.opacity = 1; hullc.style.opacity = 0; shape.style.opacity = 0;
+  void paint.offsetWidth;
+  for (const c of [paint, hullc, shape]) c.style.transition = "";
+  showEraser(false); labels.forEach(l => l.classList.remove("on")); setReadout(false);
+  steps = buildSteps(); si = 0;
+  postStatus();
 }
 function setPlay(want){
   if (want){
     if (done) resetAll();
-    if (!playing){ playing = true; eraser.setAttribute("opacity", 1); raf = requestAnimationFrame(frame); }
+    if (!playing){ playing = true; last = performance.now(); raf = requestAnimationFrame(frame); }
   } else if (playing){ playing = false; cancelAnimationFrame(raf); }
   postStatus();
+}
+function showFinal(){
+  resetAll();
+  paint.style.opacity = 0; shape.style.opacity = 1;
+  labels.forEach(l => l.classList.add("on")); setReadout(true);
+  done = true; postStatus();
 }
 
 /* ==================== controls.html link (own channel) ==================== */
 const bc = ("BroadcastChannel" in window) ? new BroadcastChannel(P.get("channel") || "eraser") : null;
 function postStatus(){ if (bc) bc.postMessage({cmd:"status", arg:{playing, placed: done ? 1 : 0, N:1}}); }
-const ACTIONS = { setPlay, reset: resetAll, all: () => { playing = true; showFinal(); }, ping: postStatus };
+const ACTIONS = { setPlay, reset: resetAll, all: showFinal, ping: postStatus };
 if (bc) bc.onmessage = e => { const f = e.data && ACTIONS[e.data.cmd]; if (f) f(e.data.arg); };
 
 /* ==================== init ==================== */
