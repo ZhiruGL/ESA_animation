@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Alpha per Cluster</title>
+<style>
+:root{ --bg:#ffffff; --fg:#1f2328; --muted:#8a919a; --pt:#1f2328; --paint:#f6caa9; --edge:#de8550; --disc:#1f2328; --green:#1d9e75; --green-fill:rgba(29,158,117,.45); }
+:root[data-theme="dark"]{ --bg:#111418; --fg:#e6e8eb; --muted:#8b939c; --pt:#e6e8eb; --paint:#7a4e33; --edge:#f0a46f; --disc:#e6e8eb; --green:#5dcaa5; --green-fill:rgba(93,202,165,.45); }
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--fg);
+  font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+html.transparent,html.transparent body{background:transparent}
+/* one SVG, scales as a picture; designed for 960 × 497 */
+svg{display:block;width:100%;height:100%}
+.axis{stroke:var(--muted);stroke-width:1.5;fill:none}
+.arrow{fill:var(--muted)}
+.axis-title{fill:var(--fg);font-size:18px;font-weight:800}
+.shape-fill{fill:var(--paint);stroke:var(--paint);stroke-width:.8;stroke-linejoin:round}
+.shape-edge{fill:none;stroke:var(--edge);stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round}
+.pt{fill:var(--pt)}
+.def{fill:var(--green-fill);stroke:var(--green);stroke-width:2.5;stroke-linejoin:round}
+.leader{stroke:var(--green);stroke-width:1.5}
+.alab{fill:var(--green);font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<svg id="ov" viewBox="0 0 960 497" preserveAspectRatio="xMidYMid meet"></svg>
+<script>
+(function(){
+"use strict";
+/* ============================================================
+   One α per cluster (as in AlphaRichness, where each cluster is pruned on its own).
+   Each cluster gets the α its own species need: small for the dense ring, so its void is kept;
+   large for the sparse disc. Neither cluster affects the other.
+
+   Points: a dense ring (left, with a void in the middle) and a sparse disc (right), both on a lightly
+   jittered hexagonal grid (same points in alpha-global.html and alpha-per-cluster.html).
+   Each cluster's α is 1.3 × its critical α (the smallest α at which every species of that cluster is a
+   corner of at least one Delaunay triangle with circumradius ≤ α); the 1.3 only smooths the outlines. The α-shape is every Delaunay triangle with
+   circumradius ≤ α. The green triangle is the one that determines α: the kept triangle with the largest
+   circumradius (as alpha_val in AlphaRichness); its circumradius is written beside it.
+
+   Options: jitter=0.22 (randomness of the species positions), relax=1.3 (multiplier on the critical α),
+            theme=dark|auto, bg=transparent
+   Inspect: window.alphaDemo
+   ============================================================ */
+const MODE = "cluster";                                      // "global" or "cluster"
+const P = new URLSearchParams(location.search);
+const root = document.documentElement;
+const theme = P.get("theme");
+if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)) root.dataset.theme = "dark";
+if (P.get("bg") === "transparent") root.classList.add("transparent");
+
+/* ==================== points (deterministic) ==================== */
+function rng(seed){ return () => (seed = (seed * 16807) % 2147483647) / 2147483647; }
+function hexPts(cx, cy, rIn, rOut, s, jit, seed){
+  const r = rng(seed), out = [];
+  for (let i = -60; i <= 60; i++) for (let j = -60; j <= 60; j++){
+    const x = s*(i + 0.5*(j & 1)), y = s*j*Math.sqrt(3)/2, d = Math.hypot(x, y);
+    if (d >= rIn && d <= rOut) out.push([cx + x + (r() - .5)*2*jit*s, cy + y + (r() - .5)*2*jit*s]);
+  }
+  return out;
+}
+const JIT = parseFloat(P.get("jitter")) || 0.22;              // random offset of each species, as a fraction of the grid spacing
+const RING = {cx:330, cy:250, rIn:17, rOut:92, s:12};          // dense cluster with a void
+const DISC = {cx:690, cy:250, rOut:150, s:38};                 // sparse cluster
+const A = hexPts(RING.cx, RING.cy, RING.rIn, RING.rOut, RING.s, JIT, 11);
+const B = hexPts(DISC.cx, DISC.cy, 0, DISC.rOut, DISC.s, JIT, 23);
+const pts = A.concat(B), nA = A.length;
+
+/* ==================== Delaunay + circumradius ==================== */
+function circum(a, b, c){
+  const d = 2*(a[0]*(b[1]-c[1]) + b[0]*(c[1]-a[1]) + c[0]*(a[1]-b[1]));
+  const a2 = a[0]*a[0]+a[1]*a[1], b2 = b[0]*b[0]+b[1]*b[1], c2 = c[0]*c[0]+c[1]*c[1];
+  const x = (a2*(b[1]-c[1]) + b2*(c[1]-a[1]) + c2*(a[1]-b[1])) / d, y = (a2*(c[0]-b[0]) + b2*(a[0]-c[0]) + c2*(b[0]-a[0])) / d;
+  return {x, y, r:Math.hypot(a[0]-x, a[1]-y)};
+}
+function delaunay(p){                                           // Bowyer–Watson
+  const BIG = 1e5, all = p.concat([[-BIG, -BIG], [BIG*2, -BIG], [-BIG, BIG*2]]), n = p.length;
+  let tris = [{v:[n, n+1, n+2], c:circum(all[n], all[n+1], all[n+2])}];
+  for (let i = 0; i < n; i++){
+    const q = all[i], bad = [], keep = [];
+    for (const t of tris) ((q[0]-t.c.x)**2 + (q[1]-t.c.y)**2 < t.c.r**2 ? bad : keep).push(t);
+    const edges = new Map();
+    for (const t of bad) for (let k = 0; k < 3; k++){
+      const a = t.v[k], b = t.v[(k+1)%3], key = a < b ? a+","+b : b+","+a;
+      edges.set(key, edges.has(key) ? null : [a, b]);
+    }
+    tris = keep;
+    for (const e of edges.values()) if (e) tris.push({v:[e[0], e[1], i], c:circum(all[e[0]], all[e[1]], q)});
+  }
+  return tris.filter(t => t.v.every(v => v < n));
+}
+// each cluster triangulated on its own (so the two clusters never share triangles)
+const triA = delaunay(A);
+const triB = delaunay(B).map(t => ({v:t.v.map(i => i + nA), c:t.c}));
+function criticalAlpha(tris, idx){
+  const need = new Map(idx.map(i => [i, Infinity]));
+  for (const t of tris) for (const v of t.v) need.set(v, Math.min(need.get(v), t.c.r));
+  return Math.max(...need.values());
+}
+const range = (a, b) => Array.from({length:b - a}, (_, k) => a + k);
+const RELAX = parseFloat(P.get("relax")) || 1.3;              // α = RELAX × critical α, so shapes are smooth (1 = exactly critical)
+const critA = criticalAlpha(triA, range(0, nA)), critB = criticalAlpha(triB, range(nA, pts.length));
+const alphaA = critA * RELAX;
+const alphaB = critB * RELAX;
+const alphaGlobal = Math.max(alphaA, alphaB);
+const useA = MODE === "global" ? alphaGlobal : alphaA, useB = MODE === "global" ? alphaGlobal : alphaB;
+const keptA = triA.filter(t => t.c.r <= useA), keptB = triB.filter(t => t.c.r <= useB);
+const kept = keptA.concat(keptB);
+// the triangle that determines α: the kept triangle with the largest circumradius (as alpha_val in AlphaRichness)
+const argmaxR = ts => ts.reduce((m, t) => t.c.r > m.c.r ? t : m);
+const DEFINING = MODE === "global" ? [{t:argmaxR(kept)}] : [{t:argmaxR(keptA)}, {t:argmaxR(keptB)}];
+
+/* ==================== draw ==================== */
+const NS = "http://www.w3.org/2000/svg", ov = document.getElementById("ov");
+function el(tag, attrs, parent){ const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); (parent || ov).appendChild(e); return e; }
+const f1 = v => v.toFixed(1);
+const PLOT = {x0:60, x1:930, y0:450, y1:40};
+el("path", {d:`M${PLOT.x0},${PLOT.y1-6}V${PLOT.y0}H${PLOT.x1+6}`, class:"axis"});
+el("path", {d:`M${PLOT.x1+12},${PLOT.y0}l-9,-5v10z`, class:"arrow"});
+el("path", {d:`M${PLOT.x0},${PLOT.y1-12}l-5,9h10z`, class:"arrow"});
+el("text", {x:(PLOT.x0+PLOT.x1)/2, y:PLOT.y0+32, "text-anchor":"middle", class:"axis-title"}).textContent = "PC1";
+el("text", {x:0, y:0, "text-anchor":"middle", class:"axis-title", transform:`translate(${PLOT.x0-22},${(PLOT.y0+PLOT.y1)/2}) rotate(-90)`}).textContent = "PC2";
+
+el("path", {d:kept.map(t => "M" + t.v.map(i => f1(pts[i][0]) + "," + f1(pts[i][1])).join("L") + "Z").join(""), class:"shape-fill"});
+{
+  const cnt = new Map();
+  for (const t of kept) for (let k = 0; k < 3; k++){ const a = t.v[k], b = t.v[(k+1)%3], key = a < b ? a+","+b : b+","+a; cnt.set(key, (cnt.get(key) || 0) + 1); }
+  const bnd = [...cnt].filter(([, c]) => c === 1).map(([k]) => k.split(",").map(Number));
+  el("path", {d:bnd.map(([i, j]) => `M${f1(pts[i][0])},${f1(pts[i][1])}L${f1(pts[j][0])},${f1(pts[j][1])}`).join(""), class:"shape-edge"});
+}
+{ const g = el("g", {}); pts.forEach(p => el("circle", {cx:f1(p[0]), cy:f1(p[1]), r:2.6, class:"pt"}, g)); }
+
+// α-defining triangle(s), highlighted, with their α written beside them (leader line to a label outside the cluster)
+const centreOf = i => i < nA ? [RING.cx, RING.cy, RING.rOut] : [DISC.cx, DISC.cy, DISC.rOut];
+for (const d of DEFINING){
+  const v = d.t.v.map(i => pts[i]);
+  el("path", {d:"M" + v.map(p => f1(p[0]) + "," + f1(p[1])).join("L") + "Z", class:"def"});
+  const g = [v.reduce((a, p) => a + p[0], 0) / 3, v.reduce((a, p) => a + p[1], 0) / 3];
+  const [cx, cy, rad] = centreOf(d.t.v[0]);
+  let dx = g[0] - cx, dy = g[1] - cy; const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
+  if (len < 1) { dx = 0; dy = -1; }
+  const lx = cx + dx*(rad + 40), ly = cy + dy*(rad + 40);
+  el("line", {x1:f1(g[0]), y1:f1(g[1]), x2:f1(lx), y2:f1(ly), class:"leader"});
+  el("text", {x:f1(lx + (dx >= 0 ? 6 : -6)), y:f1(ly + (dy > 0 ? 16 : -6)), "text-anchor":dx >= 0 ? "start" : "end", class:"alab"}).textContent = `α = ${d.t.c.r.toFixed(1)}`;
+}
+window.alphaDemo = {defining:DEFINING.map(d => d.t.c.r), mode:MODE, critA, critB, alphaA, alphaB, alphaGlobal, nA, nB:B.length,
+  ringVoidFilled: kept.some(t => { const [a, b, c] = t.v.map(i => pts[i]), p = [RING.cx, RING.cy];
+    const s = (o, u, w) => (u[0]-o[0])*(w[1]-o[1]) - (u[1]-o[1])*(w[0]-o[0]);
+    const d1 = s(a, b, p), d2 = s(b, c, p), d3 = s(c, a, p); return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0)); })};
+})();
+</script>
+</body>
+</html>
