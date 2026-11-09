@@ -317,8 +317,8 @@ window.addEventListener("resize", fitTable);
 fitTable();
 
 updateUI();
-// plays automatically on load; add ?autoplay=0 to start paused
-if (P.get("autoplay") !== "0") setTimeout(() => act("setPlay", true), 600);
+// starts paused (press Play in controls.html, or click the plot); add ?autoplay=1 to play on load
+if (P.get("autoplay") === "1") setTimeout(() => act("setPlay", true), 600);
 })();
 </script>
 </body>
