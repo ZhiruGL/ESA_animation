@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Magnitude and Variation</title>
+<style>
+:root{
+  --bg:#ffffff; --fg:#1f2328; --muted:#8a919a; --line:#e8eaed;
+  --pt:#1f2328; --hull:#2563eb; --hull-fill:rgba(37,99,235,.10); --cell:37,99,235;
+}
+:root[data-theme="dark"]{
+  --bg:#111418; --fg:#e6e8eb; --muted:#8b939c; --line:#262b31;
+  --pt:#e6e8eb; --hull:#60a5fa; --hull-fill:rgba(96,165,250,.14); --cell:96,165,250;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+  font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+html.transparent,html.transparent body{background:transparent}
+body{display:flex;padding:12px 16px;gap:28px}
+.panel{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center}
+.panel.hidden{display:none}
+h2{margin:0;font-size:var(--tfs,22px);font-weight:800;letter-spacing:-.01em}
+.sub{margin:2px 0 4px;font-size:calc(var(--tfs,22px)*.62);color:var(--muted);font-weight:600}
+svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
+
+.axis{stroke:var(--muted);stroke-width:1.5;fill:none}
+.arrow{fill:var(--muted)}
+.axis-title{fill:var(--fg);font-size:var(--afs,20px);font-weight:800}
+.pt{fill:var(--pt);stroke:var(--bg);stroke-width:1.5}
+
+/* magnitude: convex hull */
+.hull{fill:var(--hull-fill);stroke:var(--hull);stroke-width:2.5;stroke-linejoin:round;
+  fill-opacity:0;transition:fill-opacity .6s ease}
+.hull.drawn{fill-opacity:1}
+
+/* variation: Voronoi cells inside the hull */
+.cell{stroke:rgb(var(--cell));stroke-width:1.2;stroke-linejoin:round;opacity:0;
+  transform-box:fill-box;transform-origin:center;transform:scale(.6);
+  transition:opacity .35s ease,transform .45s cubic-bezier(.3,1.4,.5,1)}
+.cell.on{opacity:1;transform:scale(1)}
+.outline{fill:none;stroke:var(--hull);stroke-width:2.5;stroke-linejoin:round;opacity:0;transition:opacity .4s}
+.outline.on{opacity:1}
+</style>
+</head>
+<body>
+  <section class="panel" id="pMag">
+    <h2>Magnitude</h2>
+    <div class="sub">how much trait space is occupied</div>
+    <svg id="svgMag" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Magnitude: convex hull"></svg>
+  </section>
+  <section class="panel" id="pVar">
+    <h2>Variation</h2>
+    <div class="sub">how species are distributed within it</div>
+    <svg id="svgVar" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Variation: Voronoi cells"></svg>
+  </section>
+
+<script>
+(function(){
+"use strict";
+/* ============================================================
+   Options
+     panel=magnitude | variation | both (default both)
+     show=1        draw hull + cells immediately (no Play needed)
+     channel=...   shared with controls.html (default "magvar")
+     n, seed, shape, gap  — must match traits-to-traitspace.html to get the same points
+     afs / tfs     axis-label / title font size in px
+     theme, bg=transparent
+   ============================================================ */
+const P = new URLSearchParams(location.search);
+const N = Math.max(3, Math.min(100, parseInt(P.get("n")) || 20));
+const SEED = parseInt(P.get("seed")) || 7;
+const SHAPE = P.get("shape") || "round";
+const MIN_GAP = parseFloat(P.get("gap")) || 30;
+const SPEED = Math.max(.25, Math.min(4, parseFloat(P.get("speed")) || 1));
+
+const root = document.documentElement;
+const theme = P.get("theme");
+if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)) root.dataset.theme = "dark";
+if (P.get("bg") === "transparent") root.classList.add("transparent");
+if (parseFloat(P.get("afs")) > 0) root.style.setProperty("--afs", parseFloat(P.get("afs")) + "px");
+if (parseFloat(P.get("tfs")) > 0) root.style.setProperty("--tfs", parseFloat(P.get("tfs")) + "px");
+const PANEL = (P.get("panel") || "both").toLowerCase();
+if (PANEL.startsWith("mag")) document.getElementById("pVar").classList.add("hidden");
+if (PANEL.startsWith("var")) document.getElementById("pMag").classList.add("hidden");
+
+/* ==================== geometry (identical to traits-to-traitspace.html) ==================== */
+const W = 480, H = 400, M = {l:44, r:20, t:20, b:44};
+const x0 = M.l, x1 = W - M.r, y0 = H - M.b, y1 = M.t;
+
+/* ==================== same point pattern as the trait-space plot ==================== */
+function mulberry32(a){ return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rnd = mulberry32(SEED);
+const gauss = () => { const u = 1 - rnd(), v = rnd(); return Math.sqrt(-2*Math.log(u)) * Math.cos(2*Math.PI*v); };
+function samplePoint(){
+  let u, v;
+  if (SHAPE === "square"){ u = .2 + .6*rnd(); v = .2 + .6*rnd(); }
+  else if (SHAPE === "gauss"){ u = .5 + .14*gauss(); v = .5 + .14*gauss(); }
+  else { const r = .34*Math.sqrt(rnd()), th = 2*Math.PI*rnd(); u = .5 + r*Math.cos(th); v = .5 + r*Math.sin(th); }
+  return {u: Math.min(.95, Math.max(.05, u)), v: Math.min(.95, Math.max(.05, v))};
+}
+const PTS = [];
+{
+  let gap = MIN_GAP, tries = 0;
+  while (PTS.length < N){
+    const c = samplePoint();
+    const ok = PTS.every(p => Math.hypot((p.u - c.u)*(x1 - x0), (p.v - c.v)*(y0 - y1)) >= gap);
+    if (ok){ PTS.push(c); tries = 0; }
+    else if (++tries > 2000){ gap *= .95; tries = 0; }
+  }
+}
+const XY = PTS.map(p => [x0 + p.u*(x1 - x0), y0 - p.v*(y0 - y1)]);   // screen coords
+
+/* ==================== geometry helpers ==================== */
+const cross = (o, a, b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
+
+// convex hull, Andrew's monotone chain
+function convexHull(pts){
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const lower = [], upper = [];
+  for (const q of p){ while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], q) <= 0) lower.pop(); lower.push(q); }
+  for (let i = p.length - 1; i >= 0; i--){ const q = p[i]; while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], q) <= 0) upper.pop(); upper.push(q); }
+  upper.pop(); lower.pop();
+  return lower.concat(upper);
+}
+// keep the part of polygon `poly` where (x - m)·d <= 0  (Sutherland–Hodgman, one half-plane)
+function clipHalfPlane(poly, m, d){
+  const out = [], f = q => (q[0]-m[0])*d[0] + (q[1]-m[1])*d[1];
+  for (let i = 0; i < poly.length; i++){
+    const a = poly[i], b = poly[(i+1) % poly.length], fa = f(a), fb = f(b);
+    if (fa <= 0) out.push(a);
+    if ((fa < 0 && fb > 0) || (fa > 0 && fb < 0)){
+      const t = fa / (fa - fb);
+      out.push([a[0] + t*(b[0]-a[0]), a[1] + t*(b[1]-a[1])]);
+    }
+  }
+  return out;
+}
+// Voronoi cell of point i, clipped to the convex hull
+function voronoiCell(i, hull){
+  let poly = hull.slice();
+  for (let j = 0; j < XY.length && poly.length; j++){
+    if (j === i) continue;
+    const a = XY[i], b = XY[j];
+    poly = clipHalfPlane(poly, [(a[0]+b[0])/2, (a[1]+b[1])/2], [b[0]-a[0], b[1]-a[1]]);
+  }
+  return poly;
+}
+const area = poly => Math.abs(poly.reduce((s, p, k) => { const q = poly[(k+1) % poly.length]; return s + p[0]*q[1] - q[0]*p[1]; }, 0)) / 2;
+const pathOf = poly => "M" + poly.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join("L") + "Z";
+const perimeter = poly => poly.reduce((s, p, k) => { const q = poly[(k+1) % poly.length]; return s + Math.hypot(q[0]-p[0], q[1]-p[1]); }, 0);
+
+const HULL = convexHull(XY);
+const CELLS = XY.map((_, i) => voronoiCell(i, HULL));
+const AREAS = CELLS.map(area);
+const AMIN = Math.min(...AREAS), AMAX = Math.max(...AREAS);
+
+/* ==================== drawing ==================== */
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent){
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function drawAxes(svg){
+  const g = el("g", {}, svg);
+  el("path", {d:`M${x0},${y1-6}V${y0}H${x1+6}`, class:"axis"}, g);
+  el("path", {d:`M${x1+12},${y0}l-9,-5v10z`, class:"arrow"}, g);
+  el("path", {d:`M${x0},${y1-12}l-5,9h10z`, class:"arrow"}, g);
+  el("text", {x:(x0+x1)/2, y:H-10, "text-anchor":"middle", class:"axis-title"}, g).textContent = "PC1";
+  el("text", {x:0, y:0, "text-anchor":"middle", class:"axis-title",
+    transform:`translate(${x0-16},${(y0+y1)/2}) rotate(-90)`}, g).textContent = "PC2";
+}
+function drawPoints(svg){
+  const g = el("g", {}, svg);
+  XY.forEach(([x, y]) => el("circle", {cx:x, cy:y, r:5, class:"pt"}, g));
+}
+
+// --- Magnitude panel: axes, hull (hidden until played), points on top
+const svgMag = document.getElementById("svgMag");
+drawAxes(svgMag);
+const hullPath = el("path", {d:pathOf(HULL), class:"hull"}, svgMag);
+const HULL_LEN = perimeter(HULL);
+drawPoints(svgMag);
+
+// --- Variation panel: axes, Voronoi cells shaded by area, hull outline, points on top
+const svgVar = document.getElementById("svgVar");
+drawAxes(svgVar);
+const gCells = el("g", {}, svgVar);
+const cellPaths = CELLS.map((poly, i) => {
+  const k = AMAX > AMIN ? (AREAS[i] - AMIN) / (AMAX - AMIN) : .5;   // 0 = smallest cell, 1 = largest
+  const fill = `rgba(var(--cell),${(.06 + .38*k).toFixed(3)})`;
+  return el("path", {d:pathOf(poly), class:"cell", style:`fill:${fill}`}, gCells);
+});
+const outline = el("path", {d:pathOf(HULL), class:"outline"}, svgVar);
+drawPoints(svgVar);
+
+/* ==================== animation state ==================== */
+let shown = false, playing = false, runId = 0;
+const sleep = ms => new Promise(r => setTimeout(r, ms / SPEED));
+
+function setHull(drawn, animate){
+  hullPath.style.transition = animate ? `stroke-dashoffset ${900/SPEED}ms ease, fill-opacity ${600/SPEED}ms ease` : "none";
+  hullPath.style.strokeDasharray = HULL_LEN;
+  hullPath.style.strokeDashoffset = drawn ? 0 : HULL_LEN;
+}
+function clearAll(){
+  runId++; playing = false;
+  setHull(false, false); hullPath.classList.remove("drawn");
+  cellPaths.forEach(c => c.classList.remove("on")); outline.classList.remove("on");
+  shown = false; postStatus();
+}
+function showAll(){
+  setHull(true, false); hullPath.classList.add("drawn");
+  cellPaths.forEach(c => c.classList.add("on")); outline.classList.add("on");
+  shown = true; playing = false; postStatus();
+}
+async function play(){
+  clearAll();
+  const my = runId; playing = true; postStatus();
+  await sleep(150); if (my !== runId) return;
+  // magnitude: trace the hull, then fill it
+  void hullPath.getBoundingClientRect();
+  setHull(true, true);
+  // variation: outline first, then cells one by one
+  outline.classList.add("on");
+  setTimeout(() => { if (my === runId) hullPath.classList.add("drawn"); }, 900 / SPEED);
+  for (const c of cellPaths){
+    await sleep(110); if (my !== runId) return;
+    c.classList.add("on");
+  }
+  await sleep(400); if (my !== runId) return;
+  shown = true; playing = false; postStatus();
+}
+
+/* ==================== controls.html link ==================== */
+// Same protocol as the trait-space pages, on its own channel so the two slides don't interfere.
+const bc = ("BroadcastChannel" in window) ? new BroadcastChannel(P.get("channel") || "magvar") : null;
+function postStatus(){ if (bc) bc.postMessage({cmd:"status", arg:{playing, placed: shown ? 1 : 0, N:1}}); }
+const ACTIONS = {
+  setPlay: want => { if (want) play(); else if (playing){ showAll(); } },
+  reset: clearAll,
+  all: showAll,
+  next: () => { if (!shown) showAll(); },
+  ping: postStatus
+};
+if (bc) bc.onmessage = e => { const f = e.data && ACTIONS[e.data.cmd]; if (f) f(e.data.arg); };
+
+/* ==================== init ==================== */
+setHull(false, false);
+if (P.get("show") === "1") showAll(); else postStatus();
+})();
+</script>
+</body>
+</html>
