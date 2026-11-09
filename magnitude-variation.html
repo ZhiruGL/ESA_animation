@@ -20,7 +20,7 @@ html.transparent,html.transparent body{background:transparent}
 body{display:flex;padding:12px 16px;gap:28px}
 .panel{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center}
 .panel.hidden{display:none}
-h2{margin:0;font-size:var(--tfs,22px);font-weight:800;letter-spacing:-.01em}
+h2{margin:0;font-size:var(--tfs,32px);font-weight:800;letter-spacing:-.01em}
 /* subtitle: change size with ?sfs=20 */
 .sub{margin:4px 0 6px;font-size:var(--sfs,21px);line-height:1.25;color:var(--sub);font-weight:800;text-align:center;
   min-height:1.25em}  /* both subtitles reserve the same height so the plots stay aligned */
@@ -58,7 +58,8 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
      n, seed, shape, gap — must match traits-to-traitspace.html to get the same points
      speed         animation speed multiplier
      area=0        hide the hull-area readout
-     afs / tfs / rfs   axis-label / title / readout font size (px)
+     amp           how far interior species wander in Variation (px, default 48)
+     afs / tfs / sfs / rfs   axis-label / title / subtitle / readout font size (px)
      theme, bg=transparent
    ============================================================ */
 const P = new URLSearchParams(location.search);
@@ -137,23 +138,51 @@ const MAG_KEYS = [
   BASE
 ];
 
-// Variation: hull species stay put (so the hull is identical); interior species move toward a
-// cluster centre inside the hull. Each target is a convex combination of points inside the hull,
-// so it is guaranteed to stay inside it.
+// Variation: hull species stay put, so the hull is identical at every moment. Each interior
+// species wanders on its own smooth path (its own directions, speeds and phases), so points
+// move individually rather than as a group. Paths start at offset 0, so t = 0 is the original layout.
 const isHull = new Set(HULL0);
-function clusterToward(center, pull){
-  return BASE.map((p, i) => isHull.has(i) ? p : lerp(p, center, pull));
+const wrnd = mulberry32(SEED * 7919 + 13);            // separate RNG: doesn't disturb the point pattern
+const WANDER_AMP = parseFloat(P.get("amp")) || 48;    // how far species roam (SVG px)
+const WANDER = BASE.map((_, i) => isHull.has(i) ? null : Array.from({length:2}, () => {
+  const th = 2*Math.PI*wrnd();                       // direction of this component
+  return { dx: Math.cos(th), dy: Math.sin(th),
+           a: WANDER_AMP * (.45 + .55*wrnd()),        // amplitude
+           w: (2*Math.PI) / (3800 + 4200*wrnd()),     // angular speed (period 3.8–8 s)
+           ph: 0 };
+}));
+// keep a point inside the original hull, at least MARGIN px from every edge
+const MARGIN = 9;
+// orientation of the hull polygon in screen coordinates: +1 if the interior is on the left of each edge
+const ORIENT = Math.sign(HULL0_POLY.reduce((acc, p, k) => { const q = HULL0_POLY[(k+1) % HULL0_POLY.length]; return acc + (p[0]*q[1] - q[0]*p[1]); }, 0));
+// smallest signed distance from p to the hull's edges (positive = inside)
+function insideBy(p){
+  let m = Infinity;
+  for (let k = 0; k < HULL0_POLY.length; k++){
+    const a = HULL0_POLY[k], b = HULL0_POLY[(k+1) % HULL0_POLY.length];
+    const d = ORIENT * cross(a, b, p) / Math.hypot(b[0]-a[0], b[1]-a[1]);
+    if (d < m) m = d;
+  }
+  return m;
 }
-// cluster centres: halfway from the centroid toward the upper-left / lower-right hull vertices
-const byScore = f => HULL0.map(i => BASE[i]).sort((a, b) => f(a) - f(b))[0];
-const UL = lerp(C0, byScore(p => p[0] + p[1]), .5);      // smallest x+y  → upper-left on screen
-const LR = lerp(C0, byScore(p => -(p[0] + p[1])), .5);   // largest  x+y  → lower-right
-const VAR_KEYS = [
-  BASE,
-  clusterToward(UL, .55),   // species bunched in one corner
-  clusterToward(LR, .55),   // bunched in the opposite corner
-  BASE                      // evenly spread again
-];
+function clampInside(p){
+  if (insideBy(p) >= MARGIN) return p;
+  let lo = 0, hi = 1;                                 // binary search along the segment toward the centroid
+  for (let it = 0; it < 18; it++){
+    const mid = (lo + hi) / 2;
+    if (insideBy(lerp(p, C0, mid)) >= MARGIN) hi = mid; else lo = mid;
+  }
+  return lerp(p, C0, hi);
+}
+function wanderAt(t){
+  return BASE.map((p, i) => {
+    const comps = WANDER[i];
+    if (!comps) return p;                             // hull species: fixed
+    let x = p[0], y = p[1];
+    for (const c of comps){ const s = c.a * Math.sin(c.w * t + c.ph); x += c.dx * s; y += c.dy * s; }
+    return clampInside([x, y]);
+  });
+}
 
 /* ==================== drawing ==================== */
 const NS = "http://www.w3.org/2000/svg";
@@ -221,7 +250,7 @@ function frame(now){
 }
 function draw(){
   magPanel.render(poseAt(MAG_KEYS, t));
-  varPanel.render(poseAt(VAR_KEYS, t));
+  varPanel.render(wanderAt(t));
 }
 function setPlay(want){
   if (want && !playing){ playing = true; last = performance.now(); requestAnimationFrame(frame); }
