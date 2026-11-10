@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Delaunay and Voronoi</title>
+<style>
+:root{--ink:#1f2328;--muted:#5c5c5c;--pt:#1f2328;--fill:#f6f5f1;--del:#2563eb;--delfill:#e3ebfc;--vor:#e8590c;--vorfill:#fdebdf;--track:#d0d4d9}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#fff;color:var(--ink);font-family:-apple-system,"Helvetica Neue",Arial,sans-serif}
+html.transparent,html.transparent body{background:transparent}
+/* one SVG (switch included), scales as a picture; designed for 960 × 497 */
+svg{display:block;width:100%;height:100%;user-select:none}
+.layer{transition:opacity .6s ease}
+.del{fill:var(--fill);stroke:var(--del);stroke-width:2.4;stroke-linejoin:round}
+.vor{fill:var(--fill);stroke:var(--vor);stroke-width:2.4;stroke-linejoin:round}
+.ghost-del{fill:none;stroke:var(--del);stroke-width:1.2;stroke-dasharray:4 4;opacity:.55}
+.ghost-vor{fill:none;stroke:var(--vor);stroke-width:1.2;stroke-dasharray:4 4;opacity:.6}
+.hull{fill:none;stroke:none}
+.tri-hit{fill:transparent;cursor:pointer}
+.tri-hi{fill:var(--delfill);stroke:var(--del);stroke-width:3.4;stroke-linejoin:round}
+.cc{fill:none;stroke:#5c5c5c;stroke-width:1.6;stroke-dasharray:6 5}
+.ccpt{fill:var(--vor);stroke:#fff;stroke-width:2}
+.lbl{font-size:18px;font-weight:600;fill:var(--ink);opacity:.4;transition:opacity .2s;cursor:pointer}
+.lbl.on{opacity:1}
+.sw{cursor:pointer;outline:none}
+.sw .track{fill:var(--del);transition:fill .3s}
+.sw.on .track{fill:var(--vor)}
+.sw .knob{fill:#fff;transition:transform .3s}
+.sw.on .knob{transform:translateX(24px)}
+.sw:focus-visible .track{stroke:var(--ink);stroke-width:2}
+.cap{font-size:15px;fill:var(--muted);transition:opacity .3s}
+</style></head><body>
+<svg id="ov" viewBox="0 0 960 497" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Delaunay simplices and Voronoi tessellation of the same species"></svg>
+<script>
+/* Delaunay simplices ⟷ Voronoi tessellation of the same 18 well-spaced species (blue = Delaunay, orange = Voronoi).
+   The two are geometric duals:
+     - each Voronoi vertex is the circumcentre of a Delaunay triangle (hover a triangle: its circumcircle in grey,
+       its centre in orange),
+     - each Voronoi edge is the perpendicular bisector of a Delaunay edge (the other structure, dashed, underneath).
+   Voronoi cells are clipped to the convex hull, the region the Delaunay simplices cover.
+   Options: ?state=voronoi (open on Voronoi), ?caption=0 (hide the caption line), ?bg=transparent */
+const D = {"pts": [[-0.6693793550303302, -0.5361462964699123], [0.07625622781820983, -0.37471454966961004], [-0.2897484542132304, 0.7108751918258757], [0.9057206691024603, 0.023979830769817613], [-0.1725875017092895, 0.39890984754314146], [-0.7436702540694515, -0.01700645123277387], [-0.15936507101535186, -0.10894338229125876], [0.4374328720219348, 0.025980010284244275], [0.6173771214222207, 0.31998931114238316], [0.5720726607168533, -0.4629972676887285], [0.3407014298510691, 0.7208120844456309], [0.09120852365012196, -0.7593092942211586], [-0.7882156685465197, 0.3523383263651536], [-0.27914507218177126, -0.43289597716061906], [0.16935074782458168, 0.4292369781582739], [-0.415649255700938, 0.14337677775809574], [-0.24018813136927247, -0.7671331499194094], [0.9124642843661049, -0.3243811992092075]], "tri": [[4, 2, 12], [15, 5, 6], [4, 15, 6], [5, 15, 12], [15, 4, 12], [5, 13, 6], [0, 13, 5], [13, 0, 16], [13, 1, 6], [1, 11, 9], [9, 11, 17], [11, 13, 16], [13, 11, 1], [7, 1, 9], [7, 9, 17], [1, 7, 6], [3, 7, 17], [2, 14, 10], [14, 2, 4], [14, 4, 6], [7, 14, 6], [8, 3, 10], [3, 8, 7], [14, 8, 10], [8, 14, 7]], "cc": [[-0.48670314838282974, 0.4589243472143174, 0.31979740407939206], [-0.46769723889617487, -0.16580421739546106, 0.31353130676032237], [-0.16160477602172518, 0.1450970489593045, 0.25405030405116164], [-0.6382734141889116, 0.1830637264005287, 0.2261339643552587], [-0.48632855903520933, 0.4539726568344616, 0.31853628367744613], [-0.46966818532943516, -0.17833056783175405, 0.3179663571358612], [-0.5357475476903149, -0.25213749468625507, 0.31387650345884077], [-0.43819863550629445, -0.6208233258143528, 0.24620057753435537], [-0.11700975380485262, -0.3087244217732442, 0.20422153812099417], [0.29927658077392705, -0.5586319823745334, 0.28907386579430294], [1.8035432068133275, -2.999801453332717, 2.8199104918780677], [-0.07884048774999614, -0.5789384152369936, 0.24789175110051112], [-0.07372431990106947, -0.5731335321005067, 0.2487252646658305], [0.3523662004656551, -0.26046823696518007, 0.298812544853678], [0.6541757921262323, -0.17736503058362346, 0.29719808051347285], [0.1466133740215576, -0.07500748252152419, 0.30785459899177486], [0.6708088262870984, -0.1548134081582173, 0.29521279813261264], [0.025570654650917877, 0.709869188115219, 0.315320713652539], [-0.021104851729214842, 0.6337833208787491, 0.2794862102532399], [0.02181408407065814, 0.1498725293994375, 0.3159296794889122], [0.10762166877579163, 0.09746201325673648, 0.33746867489535703], [2.676138941861111, 2.0369913460591382, 2.6807827627775307], [0.6718313830315427, 0.08459052623458153, 0.24161509585182359], [0.41876848993870247, 0.4787976192635892, 0.2542940566117815], [0.36798960047252344, 0.2705526075001954, 0.25424028648591707]], "cells": [[[-0.66937935503033, -0.5361462964699135], [-0.4547837431998012, -0.6516397231946627], [-0.43819863550629445, -0.620823325814353], [-0.5357475476903149, -0.25213749468625524], [-0.7065248045498909, -0.27657637385134315]], [[-0.11700975380485266, -0.3087244217732442], [-0.07372431990106947, -0.5731335321005065], [0.29927658077392705, -0.5586319823745334], [0.35236620046565503, -0.26046823696518007], [0.1466133740215575, -0.07500748252152412]], [[-0.021104851729214863, 0.633783320878749], [0.025570654650917846, 0.709869188115219], [0.025476487818919365, 0.7158436381357534], [-0.2897484542132291, 0.7108751918258766], [-0.5389820613798748, 0.5316067590955148], [-0.4867031483828297, 0.4589243472143174]], [[0.9057206691024603, 0.02397983076981758], [0.7750493457278934, 0.18513539226634806], [0.6718313830315426, 0.08459052623458152], [0.6708088262870984, -0.15481340815821745], [0.9090924767342826, -0.15020068421969496]], [[-0.48632855903520933, 0.45397265683446153], [-0.16160477602172513, 0.14509704895930445], [0.021814084070658185, 0.14987252939943757], [-0.021104851729214863, 0.633783320878749], [-0.4867031483828297, 0.4589243472143174]], [[-0.7065248045498909, -0.2765763738513428], [-0.5357475476903149, -0.25213749468625524], [-0.469668185329435, -0.17833056783175405], [-0.46769723889617487, -0.16580421739546106], [-0.6382734141889115, 0.18306372640052873], [-0.7659429613079856, 0.16766593756618986], [-0.7436702540694513, -0.01700645123277525]], [[-0.11700975380485266, -0.3087244217732442], [0.1466133740215575, -0.07500748252152412], [0.1076216687757916, 0.09746201325673641], [0.021814084070658185, 0.14987252939943757], [-0.16160477602172513, 0.14509704895930445], [-0.46769723889617487, -0.16580421739546106], [-0.469668185329435, -0.17833056783175405]], [[0.6541757921262326, -0.17736503058362335], [0.6708088262870984, -0.15481340815821745], [0.6718313830315426, 0.08459052623458152], [0.3679896004725235, 0.2705526075001954], [0.1076216687757916, 0.09746201325673641], [0.1466133740215575, -0.07500748252152412], [0.35236620046565503, -0.26046823696518007]], [[0.7750493457278934, 0.18513539226634806], [0.49453180118509854, 0.5310947139672327], [0.41876848993870236, 0.4787976192635891], [0.3679896004725235, 0.2705526075001954], [0.6718313830315426, 0.08459052623458152]], [[0.6541757921262326, -0.17736503058362335], [0.35236620046565503, -0.26046823696518007], [0.29927658077392705, -0.5586319823745334], [0.34131612831817804, -0.626855034233448], [0.7492447506853043, -0.41082048432379903]], [[0.4945318011850985, 0.5310947139672327], [0.340701429851069, 0.7208120844456309], [0.025476487818919365, 0.7158436381357534], [0.025570654650917846, 0.709869188115219], [0.41876848993870236, 0.4787976192635891]], [[0.34131612831817804, -0.626855034233448], [0.29927658077392705, -0.5586319823745334], [-0.07372431990106947, -0.5731335321005065], [-0.07884048774999627, -0.5789384152369937], [-0.07448980385957524, -0.763221222070284], [0.09120852365012194, -0.7593092942211586]], [[-0.6382734141889115, 0.18306372640052873], [-0.48632855903520933, 0.45397265683446153], [-0.4867031483828297, 0.4589243472143174], [-0.538982061379875, 0.5316067590955147], [-0.7882156685465197, 0.3523383263651536], [-0.7659429613079856, 0.16766593756618983]], [[-0.11700975380485266, -0.3087244217732442], [-0.469668185329435, -0.17833056783175405], [-0.5357475476903149, -0.25213749468625524], [-0.43819863550629445, -0.620823325814353], [-0.07884048774999627, -0.5789384152369937], [-0.07372431990106947, -0.5731335321005065]], [[0.41876848993870236, 0.4787976192635891], [0.025570654650917846, 0.709869188115219], [-0.021104851729214863, 0.633783320878749], [0.021814084070658185, 0.14987252939943757], [0.1076216687757916, 0.09746201325673641], [0.3679896004725235, 0.2705526075001954]], [[-0.16160477602172513, 0.14509704895930445], [-0.48632855903520933, 0.45397265683446153], [-0.6382734141889115, 0.18306372640052873], [-0.46769723889617487, -0.16580421739546106]], [[-0.43819863550629445, -0.620823325814353], [-0.45478374319980136, -0.6516397231946608], [-0.24018813136927383, -0.7671331499194094], [-0.0744898038595752, -0.763221222070284], [-0.07884048774999627, -0.5789384152369937]], [[0.9090924767342827, -0.15020068421969496], [0.6708088262870984, -0.15481340815821745], [0.6541757921262326, -0.17736503058362335], [0.7492447506853042, -0.410820484323799], [0.9124642843661049, -0.3243811992092068]]], "hull": [[-0.6693793550303302, -0.5361462964699123], [-0.24018813136927247, -0.7671331499194094], [0.09120852365012196, -0.7593092942211586], [0.9124642843661049, -0.3243811992092075], [0.9057206691024603, 0.023979830769817613], [0.3407014298510691, 0.7208120844456309], [-0.2897484542132304, 0.7108751918258757], [-0.7882156685465197, 0.3523383263651536], [-0.7436702540694515, -0.01700645123277387]]};
+const Q = new URLSearchParams(location.search);
+if (Q.get("bg") === "transparent") document.documentElement.classList.add("transparent");
+const NS = "http://www.w3.org/2000/svg", svg = document.getElementById("ov");
+function el(tag, a, parent, text){ const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]);
+  if (text != null) e.textContent = text; (parent || svg).appendChild(e); return e; }
+const f1 = v => v.toFixed(1);
+
+/* ---- map trait space → the plot area (fixed scale, centred) ---- */
+const A = {x:180, y:58, w:600, h:400};
+const xs = D.pts.map(p => p[0]), ys = D.pts.map(p => p[1]);
+const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+const s = Math.min(A.w/(x1-x0), A.h/(y1-y0)), ox = A.x + (A.w - (x1-x0)*s)/2, oy = A.y + (A.h - (y1-y0)*s)/2;
+const P = p => [ox + (p[0]-x0)*s, oy + (y1-p[1])*s];
+const path = poly => "M" + poly.map(p => P(p).map(f1).join(",")).join("L") + "Z";
+
+/* ---- Delaunay layer (with the Voronoi tessellation faint underneath) ---- */
+const del = el("g", {class:"layer"});
+D.tri.forEach(t => el("path", {d:path(t.map(i => D.pts[i])), class:"del"}, del));
+D.cells.forEach(c => el("path", {d:path(c), class:"ghost-vor"}, del));
+/* ---- Voronoi layer (with the Delaunay triangulation faint underneath) ---- */
+const vor = el("g", {class:"layer"});
+D.cells.forEach(c => el("path", {d:path(c), class:"vor"}, vor));
+D.tri.forEach(t => el("path", {d:path(t.map(i => D.pts[i])), class:"ghost-del"}, vor));
+el("path", {d:path(D.hull), class:"hull"});
+
+/* ---- hover a triangle: its circumcircle and centre (= a Voronoi vertex) ---- */
+const hiG = el("g", {"pointer-events":"none"});          // must not catch the pointer, or hovering clears itself
+const clip = el("clipPath", {id:"plotclip"}, el("defs", {}));
+el("rect", {x:0, y:50, width:960, height:447}, clip);
+const hover = el("g", {}); 
+D.tri.forEach((t, k) => {
+  const hit = el("path", {d:path(t.map(i => D.pts[i])), class:"tri-hit"}, hover);
+  hit.addEventListener("mouseenter", () => {
+    hiG.replaceChildren();
+    const [cx, cy] = P(D.cc[k]), r = D.cc[k][2]*s;
+    el("circle", {cx:f1(cx), cy:f1(cy), r:f1(r), class:"cc", "clip-path":"url(#plotclip)"}, hiG);
+    el("path", {d:path(t.map(i => D.pts[i])), class:"tri-hi"}, hiG);
+    el("circle", {cx:f1(cx), cy:f1(cy), r:7, class:"ccpt"}, hiG);
+  });
+});
+hover.addEventListener("mouseleave", () => hiG.replaceChildren());
+/* ---- species on top ---- */
+const ptsG = el("g", {"pointer-events":"none"});
+D.pts.forEach(p => { const [x, y] = P(p); el("circle", {cx:f1(x), cy:f1(y), r:6, fill:"var(--pt)", stroke:"#fff", "stroke-width":1.5}, ptsG); });
+svg.appendChild(hiG);                                   // highlight above everything except the switch
+svg.appendChild(ptsG);
+
+/* ---- switch (top) and caption (bottom) ---- */
+const ll = el("text", {x:430, y:28, "text-anchor":"end", "dominant-baseline":"central", class:"lbl on"}, null, "Delaunay simplices");
+const swG = el("g", {class:"sw", role:"switch", tabindex:0, "aria-checked":"false", "aria-label":"Switch between Delaunay simplices and Voronoi tessellation", transform:"translate(453,13)"});
+el("rect", {width:54, height:30, rx:15, class:"track"}, swG);
+el("circle", {cx:15, cy:15, r:12, class:"knob"}, swG);
+const lr = el("text", {x:530, y:28, "dominant-baseline":"central", class:"lbl"}, null, "Voronoi tessellation");
+const cap = el("text", {x:480, y:486, "text-anchor":"middle", class:"cap"});
+if (Q.get("caption") === "0") cap.style.display = "none";
+
+function set(v){
+  swG.classList.toggle("on", v); swG.setAttribute("aria-checked", v);
+  ll.classList.toggle("on", !v); lr.classList.toggle("on", v);
+  del.style.opacity = v ? 0 : 1; vor.style.opacity = v ? 1 : 0;
+  hover.style.display = v ? "none" : ""; hiG.replaceChildren();
+  cap.textContent = v ? "Each cell: the trait space closer to one species than to any other"
+                      : "Hover a triangle: its circumcentre is a corner of the Voronoi tessellation";
+}
+const toggle = () => set(swG.getAttribute("aria-checked") !== "true");
+swG.addEventListener("click", toggle);
+swG.addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter"){ e.preventDefault(); toggle(); } });
+ll.addEventListener("click", () => set(false)); lr.addEventListener("click", () => set(true));
+set(Q.get("state") === "voronoi");
+window.delVor = {data:D, set};
+</script></body></html>
