@@ -29,6 +29,7 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
 .pt{fill:var(--pt);stroke:var(--bg);stroke-width:1.5}
 .shape{fill:var(--hull-fill);fill-rule:evenodd;stroke:var(--hull);stroke-width:2.5;stroke-linejoin:round}
 .guide{stroke:var(--ghost);stroke-width:1.2;fill:none}
+.lowghost{fill:none;stroke:var(--ghost);stroke-width:1.8;stroke-dasharray:6 5;stroke-linejoin:round}
 .centre{stroke:var(--hull);stroke-width:2.5}
 .state{fill:var(--hull);font-size:var(--rfs,15px);font-weight:800;letter-spacing:.04em}
 .readout{fill:var(--muted);font-size:var(--rfs,15px);font-weight:700;font-variant-numeric:tabular-nums}
@@ -55,8 +56,6 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
     </div>
   </section>
   <section class="panel" id="pDiv">
-    <h2>Divergence</h2>
-    <div class="sub">How far species sit from the centre</div>
     <svg id="svgDiv" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Functional divergence: low and high, with each state's alpha shape"></svg>
     <div class="control">
       <span class="control-label left active" id="loDiv">Low</span>
@@ -92,6 +91,7 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
      eve=high, div=high   start a panel in its HIGH state (default low)
      area=0        hide the FEve / FDiv readout
      state=0       hide the LOW / HIGH label in the plot
+     ghost=0       hide the dashed outline of the LOW state's alpha shape shown in the HIGH state
      guides=1      draw the minimum spanning tree (Evenness) and centre + spokes (Divergence)
      afs / tfs / sfs / rfs / cfs   axis-label / title / subtitle / readout / toggle-label font size (px)
      theme=dark|auto, bg=transparent
@@ -100,7 +100,7 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
 const DATA = {"eve_low":{"pts":[[194.6,185.37],[207.99,295.17],[173.96,168.84],[258.11,110.15],[207.46,276.81],[338.63,203.85],[129.19,199.52],[157.3,174.14],[179.14,210.08],[305.18,162.35],[331.42,170.65],[261.76,202.24],[365.99,207.98],[376.64,162.17],[273.99,256.21],[192.6,89.95],[353.08,206.66],[324.91,181.38],[327.54,232.02],[324.77,283.29]],"simp":[[7,8,6],[4,8,11],[4,14,11],[4,14,1],[18,14,11],[18,14,19],[9,3,11],[0,3,11],[0,8,11],[16,18,5],[16,18,12],[16,12,13],[10,16,13],[10,16,5],[2,3,15],[2,0,3],[2,7,8],[2,0,8],[17,10,5],[17,10,9],[17,9,11],[17,18,11],[17,18,5]],"k":2.25,"area":24930.6},"eve_high":{"pts":[[253.8,171.1],[207.99,295.17],[177.12,156.67],[258.11,110.15],[241.74,267.64],[292.15,149.89],[129.19,199.52],[218.26,133.96],[169.6,208.12],[330.99,172.14],[292.06,204.09],[197.92,243.35],[365.99,207.98],[376.64,162.17],[248.45,223.19],[192.6,89.95],[213.11,190.74],[284.66,260.57],[326,232.09],[324.77,283.29]],"simp":[[12,9,13],[8,16,11],[7,16,0],[7,3,0],[14,16,0],[14,16,11],[4,14,17],[4,11,1],[4,14,11],[18,12,9],[18,17,19],[5,3,0],[2,8,16],[2,7,16],[2,8,6],[2,7,15],[10,18,9],[10,5,0],[10,5,9],[10,14,0],[10,14,17],[10,18,17]],"k":2.29,"area":23675.8},"div_low":{"pts":[[275.01,188.59],[207.99,295.17],[176.67,156.75],[258.11,110.15],[270.2,252.76],[318.76,174.74],[129.19,199.52],[258.1,184.04],[277.35,200.79],[248.0,201.88],[262.04,210.0],[184.94,211.37],[365.99,207.98],[376.64,162.17],[289.43,184.38],[192.6,89.95],[324.77,233.34],[261.18,196.76],[261.12,169.99],[324.77,283.29]],"simp":[[4,11,1],[2,11,6],[12,5,13],[3,2,15],[9,4,11],[9,2,7],[9,2,11],[18,3,5],[18,2,7],[18,3,2],[17,9,7],[10,9,4],[10,8,4],[10,17,9],[10,17,8],[16,12,5],[16,4,19],[16,8,4],[14,18,5],[14,16,5],[14,16,8],[0,18,7],[0,14,18],[0,14,8],[0,17,7],[0,17,8]],"k":2.25,"area":24661.1},"div_high":{"pts":[[210.58,109.21],[207.99,295.17],[196.5,134.48],[258.11,110.15],[324.33,248.59],[249.09,201.02],[129.19,199.52],[185.87,121.86],[174.0,209.6],[297.59,154.95],[334.18,171.42],[198.67,247.9],[365.99,207.98],[376.64,162.17],[240.23,268.99],[192.6,89.95],[225.58,115.1],[284.52,259.74],[333.38,227.61],[324.77,283.29]],"simp":[[17,18,5],[8,11,5],[14,11,5],[14,17,5],[14,11,1],[4,17,19],[4,17,18],[9,3,5],[9,18,5],[2,8,5],[2,8,6],[10,12,18],[10,9,18],[10,12,13],[16,3,5],[16,2,5],[0,7,15],[0,2,7],[0,16,2]],"k":2.25,"area":24169.7}};
 
 const P = new URLSearchParams(location.search);
-const SHOW_VAL = P.get("area") !== "0", SHOW_STATE = P.get("state") !== "0", GUIDES = P.get("guides") === "1";
+const SHOW_VAL = P.get("area") !== "0", SHOW_STATE = P.get("state") !== "0", GUIDES = P.get("guides") === "1", GHOST = P.get("ghost") !== "0";
 const root = document.documentElement, theme = P.get("theme");
 if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)) root.dataset.theme = "dark";
 if (P.get("bg") === "transparent") root.classList.add("transparent");
@@ -195,6 +195,7 @@ function drawAxes(svg){
 function makePanel(svgId, kind){
   const svg = document.getElementById(svgId);
   drawAxes(svg);
+  const lowGhost = el("path", {class:"lowghost"}, svg);          // LOW state's alpha shape, dashed, shown in HIGH (under the solid outline)
   const shape = el("path", {class:"shape"}, svg);
   const guide = el("path", {class:"guide"}, svg);
   const cross_ = el("path", {class:"centre"}, svg);
@@ -213,6 +214,8 @@ function makePanel(svgId, kind){
     render(high){
       const st = DATA[kind + (high ? "_high" : "_low")], pts = st.pts;
       shape.setAttribute("d", loopsPath(pts, boundaryEdges(st.simp)));
+      const lo = DATA[kind + "_low"];
+      lowGhost.setAttribute("d", high && GHOST ? loopsPath(lo.pts, boundaryEdges(lo.simp)) : "");
       dots.forEach((d, i) => { d.setAttribute("cx", f1(pts[i][0])); d.setAttribute("cy", f1(pts[i][1])); });
       if (GUIDES){
         const G = centreOf(pts);
