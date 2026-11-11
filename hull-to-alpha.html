@@ -40,7 +40,7 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
 </style>
 </head>
 <body>
-  <svg id="svg" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="The original point pattern outlined by its convex hull or its alpha shape"></svg>
+  <svg id="svg" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="The evenly spaced community outlined by its convex hull or its alpha shape"></svg>
   <div class="control">
     <span class="control-label left active" id="lHull">Convex hull</span>
     <div class="switch" id="sw" role="switch" aria-checked="false" tabindex="0" aria-label="Convex hull or alpha shape"><div class="knob"></div></div>
@@ -51,13 +51,13 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
 (function(){
 "use strict";
 /* ============================================================
-   The original 20-species pattern (identical to magnitude-variation.html / traits-to-traitspace.html),
-   outlined by its convex hull or by its alpha shape, switched with a toggle.
+   The evenly spaced 20-species community of evenness-divergence.html (its "High evenness" state;
+   same points and same alpha shape), outlined by its convex hull or by its alpha shape, switched with a toggle.
 
-   Alpha shape: computed in R with AlphaRichness, unchanged (alpha_richness(); k = 2.25 from
+   Alpha shape: computed in R with AlphaRichness, unchanged (alpha_richness(); k = 2.29 from
    find_stable_k()), stored below as the kept Delaunay simplices (0-based point indices).
-   One cluster, no species left out; 20 of 31 Delaunay simplices kept.
-   Readout: outline area as a % of the convex hull area (α-shape ≈ 62%).
+   One cluster, no species left out; 22 of 31 Delaunay simplices kept.
+   Readout: outline area as a % of the convex hull area.
 
    Options
      outline=alpha  start on the alpha shape (default: convex hull)
@@ -66,7 +66,7 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
      theme=dark|auto, bg=transparent
      channel=...    BroadcastChannel name (default "hullalpha"); message {cmd:"set", arg:true (α-shape) | false (hull)}
    ============================================================ */
-const DATA = {"pts":[[266.2,183.3],[208,295.2],[167.3,141.9],[258.1,110.2],[238.7,272.3],[292,139.8],[129.2,199.5],[209.6,150.6],[177.2,201.4],[328.3,196.6],[302.6,227.5],[176,246.8],[366,208],[376.6,162.2],[256.7,221.7],[192.6,89.9],[210.4,224.8],[300.5,263],[340.3,246.2],[324.8,283.3]],"simp":[[4,11,1],[4,11,16],[12,9,13],[18,12,9],[5,9,0],[5,3,0],[8,11,6],[8,11,16],[14,16,0],[14,4,16],[2,8,6],[2,8,7],[2,7,15],[17,18,19],[17,14,4],[10,17,14],[10,9,0],[10,14,0],[10,18,9],[10,17,18]],"k":2.25,"area":20848.8};
+const DATA = {"pts":[[253.8,171.1],[207.99,295.17],[177.12,156.67],[258.11,110.15],[241.74,267.64],[292.15,149.89],[129.19,199.52],[218.26,133.96],[169.6,208.12],[330.99,172.14],[292.06,204.09],[197.92,243.35],[365.99,207.98],[376.64,162.17],[248.45,223.19],[192.6,89.95],[213.11,190.74],[284.66,260.57],[326,232.09],[324.77,283.29]],"simp":[[12,9,13],[8,16,11],[7,16,0],[7,3,0],[14,16,0],[14,16,11],[4,14,17],[4,11,1],[4,14,11],[18,12,9],[18,17,19],[5,3,0],[2,8,16],[2,7,16],[2,8,6],[2,7,15],[10,18,9],[10,5,0],[10,5,9],[10,14,0],[10,14,17],[10,18,17]],"k":2.29,"area":23675.8};
 
 const P = new URLSearchParams(location.search);
 const root = document.documentElement, theme = P.get("theme");
