@@ -35,6 +35,18 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
 .state{fill:var(--hull);font-size:var(--rfs,15px);font-weight:800;letter-spacing:.04em}
 .readout{fill:var(--muted);font-size:var(--rfs,15px);font-weight:700;font-variant-numeric:tabular-nums}
 .readout tspan.val{fill:var(--hull)}
+
+/* low / high toggle (same instrument as geometric-toggle-alter.html) */
+.control{display:flex;align-items:center;gap:10px;margin-top:6px;user-select:none}
+.control-label{font-size:var(--cfs,16px);color:var(--muted);letter-spacing:.02em;width:56px;cursor:pointer;transition:color 200ms ease}
+.control-label.left{text-align:right}
+.control-label.right{text-align:left}
+.control-label.active{color:var(--fg);font-weight:600}
+.switch{position:relative;width:54px;height:22px;background:var(--line);border-radius:11px;border:1px solid var(--ghost);cursor:pointer;flex:none}
+.knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--ghost);
+  transition:transform 260ms cubic-bezier(.4,0,.2,1)}
+.switch.on .knob{transform:translateX(32px);background:var(--hull)}
+.switch:focus-visible{outline:2px solid var(--hull);outline-offset:2px}
 </style>
 </head>
 <body>
@@ -42,11 +54,21 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
     <h2>Evenness</h2>
     <div class="sub">How regularly species are spaced</div>
     <svg id="svgEve" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Evenness: same alpha shape, species go from clumped to evenly spaced"></svg>
+    <div class="control">
+      <span class="control-label left active" id="loEve">Low</span>
+      <div class="switch" id="swEve" role="switch" aria-checked="false" tabindex="0" aria-label="Low or high evenness"><div class="knob"></div></div>
+      <span class="control-label right" id="hiEve">High</span>
+    </div>
   </section>
   <section class="panel" id="pDiv">
     <h2>Divergence</h2>
     <div class="sub">How far species sit from the centre</div>
     <svg id="svgDiv" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Divergence: same alpha shape, species go from the centre to the edge"></svg>
+    <div class="control">
+      <span class="control-label left active" id="loDiv">Low</span>
+      <div class="switch" id="swDiv" role="switch" aria-checked="false" tabindex="0" aria-label="Low or high divergence"><div class="knob"></div></div>
+      <span class="control-label right" id="hiDiv">High</span>
+    </div>
   </section>
 
 <script>
@@ -61,25 +83,25 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
      2. the alpha shape of that layout is computed once (Delaunay triangles with circumradius <= alpha);
      3. species on the alpha shape's boundary are fixed; every other species moves, but only inside
         that shape. The drawn shape never changes, so FRic is constant; only how species fill it changes.
-   Each panel loops between a LOW and a HIGH configuration:
+   Each panel has a toggle that switches (no animation) between a LOW and a HIGH configuration:
      Evenness:   clumped into two tight groups  <->  evenly spaced (the layout from step 1)
      Divergence: packed around the centre       <->  pushed out toward the shape's edge
-   Both panels recompute the alpha shape from the drawn points every frame. Each loop is checked at
-   load: if the true alpha shape would differ anywhere along it (e.g. with another alpha or seed), the
-   clumps are loosened / the outward push is shortened until it does not, so the shape never changes.
+   Both panels recompute the alpha shape from the drawn points whenever they redraw. Both states are
+   checked at load: if the true alpha shape would differ (e.g. with another alpha or seed), the clumps
+   are loosened / the outward push is shortened until it does not, so the shape never changes.
    Readouts are computed live from the drawn points (equal abundances):
      FEve — Villéger et al. 2008, regularity of minimum-spanning-tree branch lengths
      FDiv — Villéger et al. 2008, distances to the centroid of the convex-hull vertices
 
    Options
      panel=evenness | divergence | both (default both)
-     channel=...   shared with controls.html (default "evendiv")
-     autoplay=0    start paused (drive it from controls.html instead); plays by default
+     eve=high, div=high   start a panel in its HIGH state (default low)
+     channel=...   BroadcastChannel name (default "evendiv"); messages {cmd:"set", arg:{eve:true|false, div:true|false}}
      n, seed, shape, gap — same meaning as in magnitude-variation.html
      alpha=...     alpha radius in px (default: 1.5 x median nearest-neighbour distance of the even layout)
-     speed         animation speed multiplier
      area=0        hide the FEve / FDiv readout
-     state=0       hide the LOW / HIGH label
+     state=0       hide the LOW / HIGH label in the plot
+     cfs           toggle-label font size (px)
      guides=1      draw the minimum spanning tree (Evenness) and centre + spokes (Divergence)
      afs / tfs / sfs / rfs   axis-label / title / subtitle / readout font size (px)
      theme, bg=transparent
@@ -89,7 +111,6 @@ const N = Math.max(3, Math.min(100, parseInt(P.get("n")) || 20));
 const SEED = parseInt(P.get("seed")) || 7;
 const SHAPE = P.get("shape") || "round";
 const MIN_GAP = parseFloat(P.get("gap")) || 30;
-const SPEED = Math.max(.25, Math.min(4, parseFloat(P.get("speed")) || 1));
 const SHOW_VAL = P.get("area") !== "0";
 const SHOW_STATE = P.get("state") !== "0";
 const GUIDES = P.get("guides") === "1";
@@ -98,7 +119,7 @@ const root = document.documentElement;
 const theme = P.get("theme");
 if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)) root.dataset.theme = "dark";
 if (P.get("bg") === "transparent") root.classList.add("transparent");
-for (const k of ["afs", "tfs", "rfs", "sfs"]) if (parseFloat(P.get(k)) > 0) root.style.setProperty("--" + k, parseFloat(P.get(k)) + "px");
+for (const k of ["afs", "tfs", "rfs", "sfs", "cfs"]) if (parseFloat(P.get(k)) > 0) root.style.setProperty("--" + k, parseFloat(P.get(k)) + "px");
 const PANEL = (P.get("panel") || "both").toLowerCase();
 if (PANEL.startsWith("eve")) document.getElementById("pDiv").classList.add("hidden");
 if (PANEL.startsWith("div")) document.getElementById("pEve").classList.add("hidden");
@@ -426,48 +447,38 @@ function makePanel(svgId, kind){
 const evePanel = makePanel("svgEve", "eve");
 const divPanel = makePanel("svgDiv", "div");
 
-/* ==================== timeline ==================== */
-// low (hold) -> high (hold) -> low ... ; loops while playing
-const MOVE = 1600, HOLD = 1600, STEP = MOVE + HOLD, NSTEP = 2, CYCLE = NSTEP * STEP;
-const ease = k => k < .5 ? 2*k*k : 1 - (-2*k + 2)**2 / 2;
-function poseAt(keys, t){
-  const tc = ((t % CYCLE) + CYCLE) % CYCLE;
-  const s = Math.floor(tc / STEP), within = tc - s*STEP;
-  const k = ease(Math.min(1, within / MOVE));
-  const a = keys[s], b = keys[s+1];
-  const high = s === 0 ? k >= .5 : k < .5;
-  return {pts: a.map((p, i) => lerp(p, b[i], k)), high};
+/* ==================== low / high toggles ==================== */
+const STATE = {eve: P.get("eve") === "high", div: P.get("div") === "high"};
+const PANELS = {eve: {panel: evePanel, keys: EVE_KEYS, tag: "Eve"}, div: {panel: divPanel, keys: DIV_KEYS, tag: "Div"}};
+function show(kind){
+  const {panel, keys, tag} = PANELS[kind], high = STATE[kind];
+  panel.render(keys[high ? 1 : 0], high);
+  const sw = document.getElementById("sw" + tag);
+  sw.classList.toggle("on", high); sw.setAttribute("aria-checked", String(high));
+  document.getElementById("lo" + tag).classList.toggle("active", !high);
+  document.getElementById("hi" + tag).classList.toggle("active", high);
+}
+function set(kind, high){ if (kind in STATE){ STATE[kind] = !!high; show(kind); postStatus(); } }
+for (const kind of ["eve", "div"]){
+  const tag = PANELS[kind].tag, sw = document.getElementById("sw" + tag);
+  sw.addEventListener("click", () => set(kind, !STATE[kind]));
+  sw.addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter"){ e.preventDefault(); set(kind, !STATE[kind]); } });
+  document.getElementById("lo" + tag).addEventListener("click", () => set(kind, false));
+  document.getElementById("hi" + tag).addEventListener("click", () => set(kind, true));
 }
 
-let t = 0, playing = false, last = 0;
-function frame(now){
-  if (!playing) return;
-  t += (now - last) * SPEED; last = now;
-  draw();
-  requestAnimationFrame(frame);
-}
-function draw(){
-  const e = poseAt(EVE_KEYS, t), d = poseAt(DIV_KEYS, t);
-  evePanel.render(e.pts, e.high);
-  divPanel.render(d.pts, d.high);
-}
-function setPlay(want){
-  if (want && !playing){ playing = true; last = performance.now(); requestAnimationFrame(frame); }
-  else if (!want && playing){ playing = false; }
-  postStatus();
-}
-function reset(){ playing = false; t = 0; draw(); postStatus(); }
-
-/* ==================== controls.html link ==================== */
+/* ==================== optional remote control ==================== */
 const bc = ("BroadcastChannel" in window) ? new BroadcastChannel(P.get("channel") || "evendiv") : null;
-function postStatus(){ if (bc) bc.postMessage({cmd:"status", arg:{playing, placed:0, N:1}}); }
-const ACTIONS = { setPlay, reset, ping: postStatus };
-if (bc) bc.onmessage = e => { const f = e.data && ACTIONS[e.data.cmd]; if (f) f(e.data.arg); };
+function postStatus(){ if (bc) bc.postMessage({cmd:"status", arg:{...STATE}}); }
+if (bc) bc.onmessage = e => {
+  const m = e.data || {};
+  if (m.cmd === "set" && m.arg) for (const k in m.arg) set(k, m.arg[k]);
+  if (m.cmd === "ping") postStatus();
+};
 
 /* ==================== init ==================== */
-draw(); postStatus();
-if (P.get("autoplay") !== "0") setPlay(true);
-window.evenDiv = {shapeSig, SIG0, EVEN, ALPHA, MOVERS, FIXED, EVE_KEYS, DIV_KEYS, fEve, fDiv, alphaShape, insideA, G, draw, setPlay};
+show("eve"); show("div"); postStatus();
+window.evenDiv = {shapeSig, SIG0, EVEN, ALPHA, MOVERS, FIXED, EVE_KEYS, DIV_KEYS, fEve, fDiv, alphaShape, delaunay, insideA, G, set};
 })();
 </script>
 </body>
