@@ -211,8 +211,8 @@ function makePanel(svgId, ghost){
   let readout = null, val = null;
   if (SHOW_AREA){
     readout = el("text", {x:x1, y:y1+4, "text-anchor":"end", class:"readout"}, svg);
-    readout.appendChild(document.createTextNode("Hull area "));
     val = el("tspan", {class:"val"}, readout);
+    readout.appendChild(document.createTextNode(" of the original hull area"));
   }
   return {
     render(pts){
