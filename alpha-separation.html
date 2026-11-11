@@ -55,7 +55,7 @@
      species) are shifted by Δμ in both traits, Δμ = 0 … 10 in steps of 0.5 (the slider).
 
      Left: one community (the replicate whose curve is closest to the mean) with its α-shape at the
-     current Δμ. Right: that community's α-shape area relative to Δμ = 0 (teal, grows with the slider).
+     current Δμ. Right: that community's α-shape area on the original trait scale (teal, grows with the slider).
      Companion page: fric-nhyp-separation.html (FRic and N-Hyp for the same community); the two pages'
      sliders are linked when both are open (BroadcastChannel "separation").
 
@@ -68,7 +68,7 @@
   // ---- each frame's points: the moving species shifted by Δμ in both traits ----
   const moving = new Set(D.moving);
   const pointsAt = i => D.P0.map((p, j) => moving.has(j) ? [p[0] + SHIFTS[i], p[1] + SHIFTS[i]] : p);
-  const rel = D.frames.map(f => f.area / D.frames[0].area);
+  const area = D.frames.map(f => f.area);   // α-shape area on the original trait scale (no rescaling)
 
   const dpr = window.devicePixelRatio || 1;
   function setup(id, w, h){
@@ -116,7 +116,7 @@
   // ================= Line chart panel =================
   const LINE_W = 320, LINE_H = 460, lineCtx = setup('cnvLine', LINE_W, LINE_H);
   const LML = 64, LMT = 20, LMB = 58, LMR = 20;
-  const yAll = rel, yMin = Math.min(0.9, Math.min(...yAll)), yMax = Math.max(...yAll) * 1.06;
+  const yAll = area, yMin = Math.min(...yAll) * 0.9, yMax = Math.max(...yAll) * 1.06;
   const toLinePx = (s, v) => ({x: LML + s/SHIFTS[N-1]*(LINE_W-LML-LMR), y: LINE_H - LMB - (v-yMin)/(yMax-yMin)*(LINE_H-LMT-LMB)});
   function niceTicks(min, max, target){
     const raw = (max - min)/target, mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw/mag;
@@ -138,21 +138,21 @@
     lineCtx.textAlign = 'right'; lineCtx.textBaseline = 'middle';
     yTicks.forEach(v => { const p = toLinePx(0, v);
       lineCtx.beginPath(); lineCtx.moveTo(LML-4, p.y); lineCtx.lineTo(LML, p.y); lineCtx.stroke();
-      lineCtx.fillText(v.toFixed(1) + '×', LML-6, p.y); });
+      lineCtx.fillText(String(v), LML-6, p.y); });
     lineCtx.restore();
 
     // the community on the left, up to the current Δμ
     lineCtx.beginPath();
-    for (let k = 0; k <= i; k++){ const p = toLinePx(SHIFTS[k], rel[k]); k ? lineCtx.lineTo(p.x, p.y) : lineCtx.moveTo(p.x, p.y); }
+    for (let k = 0; k <= i; k++){ const p = toLinePx(SHIFTS[k], area[k]); k ? lineCtx.lineTo(p.x, p.y) : lineCtx.moveTo(p.x, p.y); }
     lineCtx.lineWidth = 2; lineCtx.strokeStyle = '#0f766e'; lineCtx.stroke();
-    const lp = toLinePx(SHIFTS[i], rel[i]);
+    const lp = toLinePx(SHIFTS[i], area[i]);
     lineCtx.beginPath(); lineCtx.arc(lp.x, lp.y, 3.5, 0, Math.PI*2); lineCtx.fillStyle = '#0f766e'; lineCtx.fill();
 
     lineCtx.fillStyle = '#1c1c1c'; lineCtx.font = '17px -apple-system, sans-serif';
     lineCtx.textAlign = 'center'; lineCtx.textBaseline = 'alphabetic';
     lineCtx.fillText('Shift of moving species, Δμ', (LML+LINE_W-LMR)/2, LINE_H-8);
     lineCtx.save(); lineCtx.translate(18, (LMT+LINE_H-LMB)/2); lineCtx.rotate(-Math.PI/2);
-    lineCtx.fillText('Functional richness (× start)', 0, 0); lineCtx.restore();
+    lineCtx.fillText('Functional Volume', 0, 0); lineCtx.restore();
   }
 
   // ================= wiring =================
@@ -162,7 +162,7 @@
   slider.addEventListener('input', () => { render(Number(slider.value)); if (bc) bc.postMessage(Number(slider.value)); });
   if (bc) bc.onmessage = e => { const v = Number(e.data); if (v >= 0 && v < N){ slider.value = v; render(v); } };
   render(0);
-  window.separationDemo = {data: D, rel, render};
+  window.separationDemo = {data: D, area, render};
 })();
 </script>
 </body></html>
