@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Evenness and Divergence</title>
+<style>
+:root{
+  --bg:#ffffff; --fg:#1f2328; --muted:#8a919a; --line:#e8eaed;
+  --pt:#1f2328; --sub:#4b5563; --hull:#2563eb; --hull-fill:rgba(37,99,235,.10); --ghost:#9aa3ad;
+}
+:root[data-theme="dark"]{
+  --bg:#111418; --fg:#e6e8eb; --muted:#8b939c; --line:#262b31;
+  --pt:#e6e8eb; --sub:#b4bcc5; --hull:#60a5fa; --hull-fill:rgba(96,165,250,.14); --ghost:#5b636d;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+  font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+html.transparent,html.transparent body{background:transparent}
+body{display:flex;padding:12px 16px;gap:28px}
+.panel{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center}
+.panel.hidden{display:none}
+h2{margin:0;font-size:var(--tfs,32px);font-weight:800;letter-spacing:-.01em}
+.sub{margin:4px 0 6px;font-size:var(--sfs,21px);line-height:1.25;color:var(--sub);font-weight:800;text-align:center;
+  min-height:1.25em}
+svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
+
+.axis{stroke:var(--muted);stroke-width:1.5;fill:none}
+.arrow{fill:var(--muted)}
+.axis-title{fill:var(--fg);font-size:var(--afs,20px);font-weight:800}
+.pt{fill:var(--pt);stroke:var(--bg);stroke-width:1.5}
+.hull{fill:var(--hull-fill);stroke:var(--hull);stroke-width:2.5;stroke-linejoin:round}
+.guide{stroke:var(--ghost);stroke-width:1.2;fill:none}
+.centre{stroke:var(--hull);stroke-width:2.5}
+.state{fill:var(--hull);font-size:var(--rfs,15px);font-weight:800;letter-spacing:.04em}
+.readout{fill:var(--muted);font-size:var(--rfs,15px);font-weight:700;font-variant-numeric:tabular-nums}
+.readout tspan.val{fill:var(--hull)}
+</style>
+</head>
+<body>
+  <section class="panel" id="pEve">
+    <h2>Evenness</h2>
+    <div class="sub">How regularly species are spaced</div>
+    <svg id="svgEve" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Evenness: same hull, species go from clumped to evenly spaced"></svg>
+  </section>
+  <section class="panel" id="pDiv">
+    <h2>Divergence</h2>
+    <div class="sub">How far species sit from the centre</div>
+    <svg id="svgDiv" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Divergence: same hull, species go from the centre to the edge"></svg>
+  </section>
+
+<script>
+(function(){
+"use strict";
+/* ============================================================
+   Companion to magnitude-variation.html (same point pattern, same hull, same look).
+   Hull species never move, so FRic is constant; only the interior species move,
+   back and forth between a LOW and a HIGH configuration.
+     Evenness:   clumped into two tight groups  <->  evenly spaced (Lloyd relaxation inside the hull)
+     Divergence: packed around the centre       <->  pushed out to the hull's edge
+   Readouts are computed live from the drawn points (equal abundances):
+     FEve — Villéger et al. 2008, regularity of minimum-spanning-tree branch lengths
+     FDiv — Villéger et al. 2008, distances to the centroid of the hull vertices
+
+   Options
+     panel=evenness | divergence | both (default both)
+     channel=...   shared with controls.html (default "evendiv")
+     autoplay=0    start paused (drive it from controls.html instead); plays by default
+     n, seed, shape, gap — same meaning as in magnitude-variation.html
+     speed         animation speed multiplier
+     area=0        hide the FEve / FDiv readout
+     state=0       hide the LOW / HIGH label
+     guides=1      draw the minimum spanning tree (Evenness) and centre + spokes (Divergence)
+     afs / tfs / sfs / rfs   axis-label / title / subtitle / readout font size (px)
+     theme, bg=transparent
+   ============================================================ */
+const P = new URLSearchParams(location.search);
+const N = Math.max(3, Math.min(100, parseInt(P.get("n")) || 20));
+const SEED = parseInt(P.get("seed")) || 7;
+const SHAPE = P.get("shape") || "round";
+const MIN_GAP = parseFloat(P.get("gap")) || 30;
+const SPEED = Math.max(.25, Math.min(4, parseFloat(P.get("speed")) || 1));
+const SHOW_VAL = P.get("area") !== "0";
+const SHOW_STATE = P.get("state") !== "0";
+const GUIDES = P.get("guides") === "1";
+
+const root = document.documentElement;
+const theme = P.get("theme");
+if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)) root.dataset.theme = "dark";
+if (P.get("bg") === "transparent") root.classList.add("transparent");
+for (const k of ["afs", "tfs", "rfs", "sfs"]) if (parseFloat(P.get(k)) > 0) root.style.setProperty("--" + k, parseFloat(P.get(k)) + "px");
+const PANEL = (P.get("panel") || "both").toLowerCase();
+if (PANEL.startsWith("eve")) document.getElementById("pDiv").classList.add("hidden");
+if (PANEL.startsWith("div")) document.getElementById("pEve").classList.add("hidden");
+
+/* ==================== geometry (identical to magnitude-variation.html) ==================== */
+const W = 480, H = 400, M = {l:44, r:20, t:20, b:44};
+const x0 = M.l, x1 = W - M.r, y0 = H - M.b, y1 = M.t;
+
+function mulberry32(a){ return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rnd = mulberry32(SEED);
+const gauss = () => { const u = 1 - rnd(), v = rnd(); return Math.sqrt(-2*Math.log(u)) * Math.cos(2*Math.PI*v); };
+function samplePoint(){
+  let u, v;
+  if (SHAPE === "square"){ u = .2 + .6*rnd(); v = .2 + .6*rnd(); }
+  else if (SHAPE === "gauss"){ u = .5 + .14*gauss(); v = .5 + .14*gauss(); }
+  else { const r = .34*Math.sqrt(rnd()), th = 2*Math.PI*rnd(); u = .5 + r*Math.cos(th); v = .5 + r*Math.sin(th); }
+  return {u: Math.min(.95, Math.max(.05, u)), v: Math.min(.95, Math.max(.05, v))};
+}
+const PTS = [];
+{
+  let gap = MIN_GAP, tries = 0;
+  while (PTS.length < N){
+    const c = samplePoint();
+    const ok = PTS.every(p => Math.hypot((p.u - c.u)*(x1 - x0), (p.v - c.v)*(y0 - y1)) >= gap);
+    if (ok){ PTS.push(c); tries = 0; }
+    else if (++tries > 2000){ gap *= .95; tries = 0; }
+  }
+}
+const BASE = PTS.map(p => [x0 + p.u*(x1 - x0), y0 - p.v*(y0 - y1)]);
+
+/* ==================== geometry helpers ==================== */
+const cross = (o, a, b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
+function hullIdx(pts){
+  const idx = pts.map((_, i) => i).sort((a, b) => pts[a][0] - pts[b][0] || pts[a][1] - pts[b][1]);
+  const lower = [], upper = [];
+  for (const i of idx){ while (lower.length >= 2 && cross(pts[lower[lower.length-2]], pts[lower[lower.length-1]], pts[i]) <= 0) lower.pop(); lower.push(i); }
+  for (let k = idx.length - 1; k >= 0; k--){ const i = idx[k]; while (upper.length >= 2 && cross(pts[upper[upper.length-2]], pts[upper[upper.length-1]], pts[i]) <= 0) upper.pop(); upper.push(i); }
+  upper.pop(); lower.pop();
+  return lower.concat(upper);
+}
+const pathOf = poly => "M" + poly.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join("L") + "Z";
+const lerp = (a, b, t) => [a[0] + (b[0]-a[0])*t, a[1] + (b[1]-a[1])*t];
+const centroid = pts => pts.reduce((c, p) => [c[0] + p[0]/pts.length, c[1] + p[1]/pts.length], [0, 0]);
+const dist = (a, b) => Math.hypot(a[0]-b[0], a[1]-b[1]);
+
+const HULL0 = hullIdx(BASE);
+const HULL0_POLY = HULL0.map(i => BASE[i]);
+const isHull = new Set(HULL0);
+const INNER = BASE.map((_, i) => i).filter(i => !isHull.has(i));   // the species that move
+const G = centroid(HULL0_POLY);                                       // centre used by FDiv
+
+const ORIENT = Math.sign(HULL0_POLY.reduce((acc, p, k) => { const q = HULL0_POLY[(k+1) % HULL0_POLY.length]; return acc + (p[0]*q[1] - q[0]*p[1]); }, 0));
+function insideBy(p){
+  let m = Infinity;
+  for (let k = 0; k < HULL0_POLY.length; k++){
+    const a = HULL0_POLY[k], b = HULL0_POLY[(k+1) % HULL0_POLY.length];
+    const d = ORIENT * cross(a, b, p) / Math.hypot(b[0]-a[0], b[1]-a[1]);
+    if (d < m) m = d;
+  }
+  return m;
+}
+// farthest point from `from` along the ray through `dirPt` that is still `margin` px inside the hull
+function toEdge(from, dirPt, margin){
+  const dx = dirPt[0] - from[0], dy = dirPt[1] - from[1], L = Math.hypot(dx, dy) || 1;
+  const u = [dx/L, dy/L];
+  let lo = 0, hi = 600;
+  for (let it = 0; it < 30; it++){
+    const mid = (lo + hi)/2;
+    if (insideBy([from[0] + u[0]*mid, from[1] + u[1]*mid]) >= margin) lo = mid; else hi = mid;
+  }
+  return [from[0] + u[0]*lo, from[1] + u[1]*lo];
+}
+// sunflower (phyllotaxis) disk of n points with roughly `gap` px between neighbours
+function sunflower(c, n, gap){
+  const golden = Math.PI*(3 - Math.sqrt(5)), out = [];
+  for (let k = 0; k < n; k++){
+    const r = gap * .56 * Math.sqrt(k + .5), th = k*golden;
+    out.push([c[0] + r*Math.cos(th), c[1] + r*Math.sin(th)]);
+  }
+  return out;
+}
+// give each mover the slot whose angle (around c) has the same rank, so paths don't cross much
+function matchByAngle(movers, slots, c){
+  const ang = p => Math.atan2(p[1]-c[1], p[0]-c[0]);
+  const mi = movers.map((p, k) => k).sort((a, b) => ang(movers[a]) - ang(movers[b]));
+  const si = slots.map((p, k) => k).sort((a, b) => ang(slots[a]) - ang(slots[b]));
+  const out = new Array(movers.length);
+  mi.forEach((m, r) => { out[m] = slots[si[r]]; });
+  return out;
+}
+// write positions for the interior species into a copy of BASE
+function withInner(posList){ const pts = BASE.map(p => p.slice()); INNER.forEach((i, k) => { pts[i] = posList[k]; }); return pts; }
+
+/* ==================== configurations ==================== */
+// HIGH evenness: Lloyd relaxation of the interior species inside the hull (hull species stay as fixed sites)
+function lloyd(){
+  const sites = BASE.map(p => p.slice()), step = 4, samples = [];
+  for (let x = x0; x <= x1; x += step) for (let y = y1; y <= y0; y += step) if (insideBy([x, y]) >= 0) samples.push([x, y]);
+  for (let it = 0; it < 80; it++){
+    const sx = new Float64Array(sites.length), sy = new Float64Array(sites.length), sn = new Float64Array(sites.length);
+    for (const s of samples){
+      let best = 0, bd = Infinity;
+      for (let j = 0; j < sites.length; j++){ const d = (s[0]-sites[j][0])**2 + (s[1]-sites[j][1])**2; if (d < bd){ bd = d; best = j; } }
+      sx[best] += s[0]; sy[best] += s[1]; sn[best]++;
+    }
+    for (const i of INNER) if (sn[i]) sites[i] = [sx[i]/sn[i], sy[i]/sn[i]];
+  }
+  return INNER.map(i => sites[i]);
+}
+const EVEN = lloyd();
+
+// LOW evenness: the interior species fall into two tight groups on either side of the centre
+function clumped(){
+  // split along the hull's longest direction
+  let a = HULL0_POLY[0], b = HULL0_POLY[1], best = 0;
+  for (const p of HULL0_POLY) for (const q of HULL0_POLY){ const d = dist(p, q); if (d > best){ best = d; a = p; b = q; } }
+  const cA = lerp(G, a, .45), cB = lerp(G, b, .45);
+  const inA = EVEN.map(p => dist(p, cA) <= dist(p, cB));
+  const nA = inA.filter(Boolean).length, nB = EVEN.length - nA;
+  const slotsA = sunflower(cA, nA, 13), slotsB = sunflower(cB, nB, 13);
+  const movA = EVEN.filter((_, k) => inA[k]), movB = EVEN.filter((_, k) => !inA[k]);
+  const resA = matchByAngle(movA, slotsA, cA), resB = matchByAngle(movB, slotsB, cB);
+  let ia = 0, ib = 0;
+  return EVEN.map((_, k) => inA[k] ? resA[ia++] : resB[ib++]);
+}
+const CLUMP = clumped();
+
+// LOW divergence: the interior species packed around the centre
+const CENTRE = matchByAngle(EVEN, sunflower(G, EVEN.length, 15), G);
+// HIGH divergence: each interior species pushed out along its own direction to just inside the edge
+const EDGE = EVEN.map(p => toEdge(G, p, 14));
+
+const EVE_KEYS = [withInner(CLUMP), withInner(EVEN), withInner(CLUMP)];
+const DIV_KEYS = [withInner(CENTRE), withInner(EDGE), withInner(CENTRE)];
+
+/* ==================== indices (equal abundances) ==================== */
+function mstEdges(pts){
+  const n = pts.length, inTree = new Array(n).fill(false), d = new Array(n).fill(Infinity), par = new Array(n).fill(-1), edges = [];
+  d[0] = 0;
+  for (let it = 0; it < n; it++){
+    let u = -1;
+    for (let v = 0; v < n; v++) if (!inTree[v] && (u < 0 || d[v] < d[u])) u = v;
+    inTree[u] = true;
+    if (par[u] >= 0) edges.push([par[u], u, d[u]]);
+    for (let v = 0; v < n; v++) if (!inTree[v]){ const w = dist(pts[u], pts[v]); if (w < d[v]){ d[v] = w; par[v] = u; } }
+  }
+  return edges;
+}
+function fEve(pts){
+  const S = pts.length, e = mstEdges(pts), tot = e.reduce((s, x) => s + x[2], 0), k = 1/(S - 1);
+  const sumMin = e.reduce((s, x) => s + Math.min(x[2]/tot, k), 0);
+  return (sumMin - k) / (1 - k);
+}
+function fDiv(pts){
+  const d = pts.map(p => dist(p, G)), m = d.reduce((s, x) => s + x, 0) / d.length;
+  const absDev = d.reduce((s, x) => s + Math.abs(x - m), 0) / d.length;
+  return m / (absDev + m);                         // Δd = 0 with equal abundances
+}
+
+/* ==================== drawing ==================== */
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent){
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function drawAxes(svg){
+  const g = el("g", {}, svg);
+  el("path", {d:`M${x0},${y1-6}V${y0}H${x1+6}`, class:"axis"}, g);
+  el("path", {d:`M${x1+12},${y0}l-9,-5v10z`, class:"arrow"}, g);
+  el("path", {d:`M${x0},${y1-12}l-5,9h10z`, class:"arrow"}, g);
+  el("text", {x:(x0+x1)/2, y:H-10, "text-anchor":"middle", class:"axis-title"}, g).textContent = "PC1";
+  el("text", {x:0, y:0, "text-anchor":"middle", class:"axis-title",
+    transform:`translate(${x0-16},${(y0+y1)/2}) rotate(-90)`}, g).textContent = "PC2";
+}
+function makePanel(svgId, kind){
+  const svg = document.getElementById(svgId);
+  drawAxes(svg);
+  el("path", {d:pathOf(HULL0_POLY), class:"hull"}, svg);          // hull never changes
+  const guide = el("path", {class:"guide"}, svg);
+  if (GUIDES && kind === "div"){
+    const s = 7;
+    el("path", {d:`M${G[0]-s},${G[1]-s}L${G[0]+s},${G[1]+s}M${G[0]-s},${G[1]+s}L${G[0]+s},${G[1]-s}`, class:"centre"}, svg);
+  }
+  const gPts = el("g", {}, svg);
+  const dots = BASE.map(() => el("circle", {r:5, class:"pt"}, gPts));
+  let state = null, val = null;
+  if (SHOW_STATE) state = el("text", {x:x1, y:y1 + 4, "text-anchor":"end", "dominant-baseline":"hanging", class:"state"}, svg);
+  if (SHOW_VAL){
+    const readout = el("text", {x:x1, y:y1 + 4 + (SHOW_STATE ? 20 : 0), "text-anchor":"end", "dominant-baseline":"hanging", class:"readout"}, svg);
+    readout.appendChild(document.createTextNode(kind === "eve" ? "FEve " : "FDiv "));
+    val = el("tspan", {class:"val"}, readout);
+  }
+  const word = kind === "eve" ? "EVENNESS" : "DIVERGENCE";
+  return {
+    render(pts, high){
+      dots.forEach((d, i) => { d.setAttribute("cx", pts[i][0].toFixed(1)); d.setAttribute("cy", pts[i][1].toFixed(1)); });
+      if (GUIDES){
+        guide.setAttribute("d", kind === "eve"
+          ? mstEdges(pts).map(([a, b]) => `M${pts[a][0].toFixed(1)},${pts[a][1].toFixed(1)}L${pts[b][0].toFixed(1)},${pts[b][1].toFixed(1)}`).join("")
+          : pts.map(p => `M${G[0].toFixed(1)},${G[1].toFixed(1)}L${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(""));
+      }
+      if (state) state.textContent = (high ? "HIGH " : "LOW ") + word;
+      if (val) val.textContent = (kind === "eve" ? fEve(pts) : fDiv(pts)).toFixed(2);
+    }
+  };
+}
+const evePanel = makePanel("svgEve", "eve");
+const divPanel = makePanel("svgDiv", "div");
+
+/* ==================== timeline ==================== */
+// low (hold) -> high (hold) -> low ... ; loops while playing
+const MOVE = 1600, HOLD = 1600, STEP = MOVE + HOLD, NSTEP = 2, CYCLE = NSTEP * STEP;
+const ease = k => k < .5 ? 2*k*k : 1 - (-2*k + 2)**2 / 2;
+function poseAt(keys, t){
+  const tc = ((t % CYCLE) + CYCLE) % CYCLE;
+  const s = Math.floor(tc / STEP), within = tc - s*STEP;
+  const k = ease(Math.min(1, within / MOVE));
+  const a = keys[s], b = keys[s+1];
+  const high = s === 0 ? k >= .5 : k < .5;          // which end the points are closer to
+  return {pts: a.map((p, i) => lerp(p, b[i], k)), high};
+}
+
+let t = 0, playing = false, last = 0;
+function frame(now){
+  if (!playing) return;
+  t += (now - last) * SPEED; last = now;
+  draw();
+  requestAnimationFrame(frame);
+}
+function draw(){
+  const e = poseAt(EVE_KEYS, t), d = poseAt(DIV_KEYS, t);
+  evePanel.render(e.pts, e.high);
+  divPanel.render(d.pts, d.high);
+}
+function setPlay(want){
+  if (want && !playing){ playing = true; last = performance.now(); requestAnimationFrame(frame); }
+  else if (!want && playing){ playing = false; }
+  postStatus();
+}
+function reset(){ playing = false; t = 0; draw(); postStatus(); }
+
+/* ==================== controls.html link ==================== */
+const bc = ("BroadcastChannel" in window) ? new BroadcastChannel(P.get("channel") || "evendiv") : null;
+function postStatus(){ if (bc) bc.postMessage({cmd:"status", arg:{playing, placed:0, N:1}}); }
+const ACTIONS = { setPlay, reset, ping: postStatus };
+if (bc) bc.onmessage = e => { const f = e.data && ACTIONS[e.data.cmd]; if (f) f(e.data.arg); };
+
+/* ==================== init ==================== */
+draw(); postStatus();
+if (P.get("autoplay") !== "0") setPlay(true);
+window.evenDiv = {EVE_KEYS, DIV_KEYS, fEve, fDiv, G, draw, setPlay};
+})();
+</script>
+</body>
+</html>
