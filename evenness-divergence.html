@@ -63,6 +63,9 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
         that shape. The drawn shape never changes, so FRic is constant; only how species fill it changes.
    Each panel loops between a LOW and a HIGH configuration:
      Evenness:   clumped into two tight groups  <->  evenly spaced (the layout from step 1)
+                 The Evenness panel recomputes the alpha shape from the drawn points every frame. The
+                 clumping is checked at load: if the true alpha shape would differ anywhere along the
+                 loop (e.g. with a different alpha or seed), the groups are loosened until it does not.
      Divergence: packed around the centre       <->  pushed out to the shape's edge
    Readouts are computed live from the drawn points (equal abundances):
      FEve — Villéger et al. 2008, regularity of minimum-spanning-tree branch lengths
@@ -319,7 +322,22 @@ const EDGE = evenPos.map(p => {
 });
 
 function withMovers(posList){ const pts = EVEN.map(p => p.slice()); MOVERS.forEach((i, k) => { pts[i] = posList[k]; }); return pts; }
-const EVE_KEYS = [withMovers(CLUMP), withMovers(evenPos), withMovers(CLUMP)];
+
+// signature of an alpha shape: its boundary edges + its area
+function shapeSig(pts){
+  const a = alphaShape(pts, ALPHA);
+  const area = a.tris.reduce((s, t) => s + Math.abs(cross(pts[t[0]], pts[t[1]], pts[t[2]])), 0) / 2;
+  return a.edges.map(([u, v]) => u < v ? u+","+v : v+","+u).sort().join("|") + "#" + area.toFixed(3);
+}
+const SIG0 = shapeSig(EVEN);
+// keep the true alpha shape identical along the evenness loop: shorten the clumping path if needed
+const CLUMP_SAFE = (() => {
+  const at = k => evenPos.map((p, i) => lerp(p, CLUMP[i], k));
+  let kOk = 0;
+  for (let k = .005; k <= 1.0001; k += .005){ if (shapeSig(withMovers(at(Math.min(k, 1)))) === SIG0) kOk = Math.min(k, 1); else break; }
+  return at(kOk);
+})();
+const EVE_KEYS = [withMovers(CLUMP_SAFE), withMovers(evenPos), withMovers(CLUMP_SAFE)];
 const DIV_KEYS = [withMovers(CENTRE), withMovers(EDGE), withMovers(CENTRE)];
 
 /* ==================== indices (equal abundances) ==================== */
@@ -365,7 +383,9 @@ function drawAxes(svg){
 function makePanel(svgId, kind){
   const svg = document.getElementById(svgId);
   drawAxes(svg);
-  el("path", {d:A_PATH, class:"shape"}, svg);                     // the alpha shape: drawn once, never changes
+  // Evenness: the true alpha shape of the drawn points, recomputed every frame (identical by construction).
+  // Divergence: the alpha shape of the even layout, drawn once.
+  const shape = el("path", {d:A_PATH, class:"shape"}, svg);
   const guide = el("path", {class:"guide"}, svg);
   if (GUIDES && kind === "div"){
     const s = 7;
@@ -384,6 +404,7 @@ function makePanel(svgId, kind){
   return {
     render(pts, high){
       dots.forEach((d, i) => { d.setAttribute("cx", f1(pts[i][0])); d.setAttribute("cy", f1(pts[i][1])); });
+      if (kind === "eve") shape.setAttribute("d", loopsPath(pts, alphaShape(pts, ALPHA).edges));
       if (GUIDES){
         guide.setAttribute("d", kind === "eve"
           ? mstEdges(pts).map(([a, b]) => `M${f1(pts[a][0])},${f1(pts[a][1])}L${f1(pts[b][0])},${f1(pts[b][1])}`).join("")
@@ -438,7 +459,7 @@ if (bc) bc.onmessage = e => { const f = e.data && ACTIONS[e.data.cmd]; if (f) f(
 /* ==================== init ==================== */
 draw(); postStatus();
 if (P.get("autoplay") !== "0") setPlay(true);
-window.evenDiv = {EVEN, ALPHA, MOVERS, FIXED, EVE_KEYS, DIV_KEYS, fEve, fDiv, alphaShape, insideA, G, draw, setPlay};
+window.evenDiv = {shapeSig, SIG0, EVEN, ALPHA, MOVERS, FIXED, EVE_KEYS, DIV_KEYS, fEve, fDiv, alphaShape, insideA, G, draw, setPlay};
 })();
 </script>
 </body>
