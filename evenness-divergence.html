@@ -21,10 +21,8 @@ body{display:flex;padding:12px 16px;gap:28px}
 .panel{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center}
 .panel.hidden{display:none}
 h2{margin:0;font-size:var(--tfs,32px);font-weight:800;letter-spacing:-.01em}
-.sub{margin:4px 0 6px;font-size:var(--sfs,21px);line-height:1.25;color:var(--sub);font-weight:800;text-align:center;
-  min-height:1.25em}
+.sub{margin:4px 0 6px;font-size:var(--sfs,21px);line-height:1.25;color:var(--sub);font-weight:800;text-align:center;min-height:1.25em}
 svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
-
 .axis{stroke:var(--muted);stroke-width:1.5;fill:none}
 .arrow{fill:var(--muted)}
 .axis-title{fill:var(--fg);font-size:var(--afs,20px);font-weight:800}
@@ -35,7 +33,6 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
 .state{fill:var(--hull);font-size:var(--rfs,15px);font-weight:800;letter-spacing:.04em}
 .readout{fill:var(--muted);font-size:var(--rfs,15px);font-weight:700;font-variant-numeric:tabular-nums}
 .readout tspan.val{fill:var(--hull)}
-
 /* low / high toggle (same instrument as geometric-toggle-alter.html) */
 .control{display:flex;align-items:center;gap:10px;margin-top:6px;user-select:none}
 .control-label{font-size:var(--cfs,16px);color:var(--muted);letter-spacing:.02em;width:56px;cursor:pointer;transition:color 200ms ease}
@@ -43,8 +40,7 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
 .control-label.right{text-align:left}
 .control-label.active{color:var(--fg);font-weight:600}
 .switch{position:relative;width:54px;height:22px;background:var(--line);border-radius:11px;border:1px solid var(--ghost);cursor:pointer;flex:none}
-.knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--ghost);
-  transition:transform 260ms cubic-bezier(.4,0,.2,1)}
+.knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--ghost);transition:transform 260ms cubic-bezier(.4,0,.2,1)}
 .switch.on .knob{transform:translateX(32px);background:var(--hull)}
 .switch:focus-visible{outline:2px solid var(--hull);outline-offset:2px}
 </style>
@@ -53,7 +49,7 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
   <section class="panel" id="pEve">
     <h2>Evenness</h2>
     <div class="sub">How regularly species are spaced</div>
-    <svg id="svgEve" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Evenness: same alpha shape, species go from clumped to evenly spaced"></svg>
+    <svg id="svgEve" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Functional evenness: low and high, with each state's alpha shape"></svg>
     <div class="control">
       <span class="control-label left active" id="loEve">Low</span>
       <div class="switch" id="swEve" role="switch" aria-checked="false" tabindex="0" aria-label="Low or high evenness"><div class="knob"></div></div>
@@ -63,7 +59,7 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
   <section class="panel" id="pDiv">
     <h2>Divergence</h2>
     <div class="sub">How far species sit from the centre</div>
-    <svg id="svgDiv" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Divergence: same alpha shape, species go from the centre to the edge"></svg>
+    <svg id="svgDiv" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid meet" aria-label="Functional divergence: low and high, with each state's alpha shape"></svg>
     <div class="control">
       <span class="control-label left active" id="loDiv">Low</span>
       <div class="switch" id="swDiv" role="switch" aria-checked="false" tabindex="0" aria-label="Low or high divergence"><div class="knob"></div></div>
@@ -75,48 +71,39 @@ svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
 (function(){
 "use strict";
 /* ============================================================
-   Companion to magnitude-variation.html (same point pattern, same look).
+   Functional evenness and divergence, each with a Low / High toggle (no animation).
 
-   Occupied space is an alpha shape, and it is the SAME shape at every moment:
-     1. the species are first spread evenly (Lloyd relaxation inside the convex hull of the
-        original pattern; convex-hull species stay put);
-     2. the alpha shape of that layout is computed once (Delaunay triangles with circumradius <= alpha);
-     3. species on the alpha shape's boundary are fixed; every other species moves, but only inside
-        that shape. The drawn shape never changes, so FRic is constant; only how species fill it changes.
-   Each panel has a toggle that switches (no animation) between a LOW and a HIGH configuration:
-     Evenness:   clumped into two tight groups  <->  evenly spaced (the layout from step 1)
-     Divergence: packed around the centre       <->  pushed out toward the shape's edge
-   Both panels recompute the alpha shape from the drawn points whenever they redraw. Both states are
-   checked at load: if the true alpha shape would differ (e.g. with another alpha or seed), the clumps
-   are loosened / the outward push is shortened until it does not, so the shape never changes.
-   Readouts are computed live from the drawn points (equal abundances):
-     FEve — Villéger et al. 2008, regularity of minimum-spanning-tree branch lengths
-     FDiv — Villéger et al. 2008, distances to the centroid of the convex-hull vertices
+   Points: the 20-species pattern of magnitude-variation.html. The convex-hull species never move,
+   so FRic is the same in all four states. "High evenness" is the evenly spaced layout; the other three
+   states were found by a constrained search that keeps the alpha shape as close to it as possible.
+
+   Alpha shapes: computed in R with AlphaRichness, unchanged (alpha_richness(), k from find_stable_k()),
+   one per state, and stored below as the kept Delaunay simplices (0-based point indices). Every state
+   gives one cluster with no species left out; the shapes differ from the evenly spaced one by
+   at most ~9% of its area (pixels).
+     state       FEve  FDiv  k     area (px^2)
+     eve_low     0.75  0.79  2.25  24931
+     eve_high    0.98  0.76  2.29  23676
+     div_low     0.74  0.62  2.25  24661
+     div_high    0.86  0.82  2.25  24170
+   FEve and FDiv (Villéger et al. 2008, equal abundances) are computed live from the drawn points;
+   FDiv's centre is the centroid of the convex-hull vertices.
 
    Options
      panel=evenness | divergence | both (default both)
      eve=high, div=high   start a panel in its HIGH state (default low)
-     channel=...   BroadcastChannel name (default "evendiv"); messages {cmd:"set", arg:{eve:true|false, div:true|false}}
-     n, seed, shape, gap — same meaning as in magnitude-variation.html
-     alpha=...     alpha radius in px (default: 1.5 x median nearest-neighbour distance of the even layout)
      area=0        hide the FEve / FDiv readout
      state=0       hide the LOW / HIGH label in the plot
-     cfs           toggle-label font size (px)
      guides=1      draw the minimum spanning tree (Evenness) and centre + spokes (Divergence)
-     afs / tfs / sfs / rfs   axis-label / title / subtitle / readout font size (px)
-     theme, bg=transparent
+     afs / tfs / sfs / rfs / cfs   axis-label / title / subtitle / readout / toggle-label font size (px)
+     theme=dark|auto, bg=transparent
+     channel=...   BroadcastChannel name (default "evendiv"); messages {cmd:"set", arg:{eve:true|false, div:true|false}}
    ============================================================ */
-const P = new URLSearchParams(location.search);
-const N = Math.max(3, Math.min(100, parseInt(P.get("n")) || 20));
-const SEED = parseInt(P.get("seed")) || 7;
-const SHAPE = P.get("shape") || "round";
-const MIN_GAP = parseFloat(P.get("gap")) || 30;
-const SHOW_VAL = P.get("area") !== "0";
-const SHOW_STATE = P.get("state") !== "0";
-const GUIDES = P.get("guides") === "1";
+const DATA = {"eve_low":{"pts":[[194.6,185.37],[207.99,295.17],[173.96,168.84],[258.11,110.15],[207.46,276.81],[338.63,203.85],[129.19,199.52],[157.3,174.14],[179.14,210.08],[305.18,162.35],[331.42,170.65],[261.76,202.24],[365.99,207.98],[376.64,162.17],[273.99,256.21],[192.6,89.95],[353.08,206.66],[324.91,181.38],[327.54,232.02],[324.77,283.29]],"simp":[[7,8,6],[4,8,11],[4,14,11],[4,14,1],[18,14,11],[18,14,19],[9,3,11],[0,3,11],[0,8,11],[16,18,5],[16,18,12],[16,12,13],[10,16,13],[10,16,5],[2,3,15],[2,0,3],[2,7,8],[2,0,8],[17,10,5],[17,10,9],[17,9,11],[17,18,11],[17,18,5]],"k":2.25,"area":24930.6},"eve_high":{"pts":[[253.8,171.1],[207.99,295.17],[177.12,156.67],[258.11,110.15],[241.74,267.64],[292.15,149.89],[129.19,199.52],[218.26,133.96],[169.6,208.12],[330.99,172.14],[292.06,204.09],[197.92,243.35],[365.99,207.98],[376.64,162.17],[248.45,223.19],[192.6,89.95],[213.11,190.74],[284.66,260.57],[326,232.09],[324.77,283.29]],"simp":[[12,9,13],[8,16,11],[7,16,0],[7,3,0],[14,16,0],[14,16,11],[4,14,17],[4,11,1],[4,14,11],[18,12,9],[18,17,19],[5,3,0],[2,8,16],[2,7,16],[2,8,6],[2,7,15],[10,18,9],[10,5,0],[10,5,9],[10,14,0],[10,14,17],[10,18,17]],"k":2.29,"area":23675.8},"div_low":{"pts":[[275.01,188.59],[207.99,295.17],[176.67,156.75],[258.11,110.15],[270.2,252.76],[318.76,174.74],[129.19,199.52],[258.1,184.04],[277.35,200.79],[248.0,201.88],[262.04,210.0],[184.94,211.37],[365.99,207.98],[376.64,162.17],[289.43,184.38],[192.6,89.95],[324.77,233.34],[261.18,196.76],[261.12,169.99],[324.77,283.29]],"simp":[[4,11,1],[2,11,6],[12,5,13],[3,2,15],[9,4,11],[9,2,7],[9,2,11],[18,3,5],[18,2,7],[18,3,2],[17,9,7],[10,9,4],[10,8,4],[10,17,9],[10,17,8],[16,12,5],[16,4,19],[16,8,4],[14,18,5],[14,16,5],[14,16,8],[0,18,7],[0,14,18],[0,14,8],[0,17,7],[0,17,8]],"k":2.25,"area":24661.1},"div_high":{"pts":[[210.58,109.21],[207.99,295.17],[196.5,134.48],[258.11,110.15],[324.33,248.59],[249.09,201.02],[129.19,199.52],[185.87,121.86],[174.0,209.6],[297.59,154.95],[334.18,171.42],[198.67,247.9],[365.99,207.98],[376.64,162.17],[240.23,268.99],[192.6,89.95],[225.58,115.1],[284.52,259.74],[333.38,227.61],[324.77,283.29]],"simp":[[17,18,5],[8,11,5],[14,11,5],[14,17,5],[14,11,1],[4,17,19],[4,17,18],[9,3,5],[9,18,5],[2,8,5],[2,8,6],[10,12,18],[10,9,18],[10,12,13],[16,3,5],[16,2,5],[0,7,15],[0,2,7],[0,16,2]],"k":2.25,"area":24169.7}};
 
-const root = document.documentElement;
-const theme = P.get("theme");
+const P = new URLSearchParams(location.search);
+const SHOW_VAL = P.get("area") !== "0", SHOW_STATE = P.get("state") !== "0", GUIDES = P.get("guides") === "1";
+const root = document.documentElement, theme = P.get("theme");
 if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)) root.dataset.theme = "dark";
 if (P.get("bg") === "transparent") root.classList.add("transparent");
 for (const k of ["afs", "tfs", "rfs", "sfs", "cfs"]) if (parseFloat(P.get(k)) > 0) root.style.setProperty("--" + k, parseFloat(P.get(k)) + "px");
@@ -127,35 +114,8 @@ if (PANEL.startsWith("div")) document.getElementById("pEve").classList.add("hidd
 /* ==================== geometry (identical to magnitude-variation.html) ==================== */
 const W = 480, H = 400, M = {l:44, r:20, t:20, b:44};
 const x0 = M.l, x1 = W - M.r, y0 = H - M.b, y1 = M.t;
-
-function mulberry32(a){ return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
-  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-const rnd = mulberry32(SEED);
-const gauss = () => { const u = 1 - rnd(), v = rnd(); return Math.sqrt(-2*Math.log(u)) * Math.cos(2*Math.PI*v); };
-function samplePoint(){
-  let u, v;
-  if (SHAPE === "square"){ u = .2 + .6*rnd(); v = .2 + .6*rnd(); }
-  else if (SHAPE === "gauss"){ u = .5 + .14*gauss(); v = .5 + .14*gauss(); }
-  else { const r = .34*Math.sqrt(rnd()), th = 2*Math.PI*rnd(); u = .5 + r*Math.cos(th); v = .5 + r*Math.sin(th); }
-  return {u: Math.min(.95, Math.max(.05, u)), v: Math.min(.95, Math.max(.05, v))};
-}
-const PTS = [];
-{
-  let gap = MIN_GAP, tries = 0;
-  while (PTS.length < N){
-    const c = samplePoint();
-    const ok = PTS.every(p => Math.hypot((p.u - c.u)*(x1 - x0), (p.v - c.v)*(y0 - y1)) >= gap);
-    if (ok){ PTS.push(c); tries = 0; }
-    else if (++tries > 2000){ gap *= .95; tries = 0; }
-  }
-}
-const BASE = PTS.map(p => [x0 + p.u*(x1 - x0), y0 - p.v*(y0 - y1)]);
-
-/* ==================== geometry helpers ==================== */
 const cross = (o, a, b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
 const dist = (a, b) => Math.hypot(a[0]-b[0], a[1]-b[1]);
-const lerp = (a, b, t) => [a[0] + (b[0]-a[0])*t, a[1] + (b[1]-a[1])*t];
-const centroid = pts => pts.reduce((c, p) => [c[0] + p[0]/pts.length, c[1] + p[1]/pts.length], [0, 0]);
 const f1 = v => v.toFixed(1);
 function hullIdx(pts){
   const idx = pts.map((_, i) => i).sort((a, b) => pts[a][0] - pts[b][0] || pts[a][1] - pts[b][1]);
@@ -165,72 +125,15 @@ function hullIdx(pts){
   upper.pop(); lower.pop();
   return lower.concat(upper);
 }
-function segDist(p, a, b){
-  const dx = b[0]-a[0], dy = b[1]-a[1], L2 = dx*dx + dy*dy;
-  const t = L2 ? Math.max(0, Math.min(1, ((p[0]-a[0])*dx + (p[1]-a[1])*dy) / L2)) : 0;
-  return Math.hypot(p[0] - a[0] - t*dx, p[1] - a[1] - t*dy);
-}
-function inTri(p, a, b, c){
-  const d1 = cross(a, b, p), d2 = cross(b, c, p), d3 = cross(c, a, p);
-  return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
-}
-// sunflower (phyllotaxis) disk of n points with roughly `gap` px between neighbours
-function sunflower(c, n, gap){
-  const golden = Math.PI*(3 - Math.sqrt(5)), out = [];
-  for (let k = 0; k < n; k++){
-    const r = gap * .56 * Math.sqrt(k + .5), th = k*golden;
-    out.push([c[0] + r*Math.cos(th), c[1] + r*Math.sin(th)]);
-  }
-  return out;
-}
-// give each mover the slot whose angle (around c) has the same rank, so paths don't cross much
-function matchByAngle(movers, slots, c){
-  const ang = p => Math.atan2(p[1]-c[1], p[0]-c[0]);
-  const mi = movers.map((_, k) => k).sort((a, b) => ang(movers[a]) - ang(movers[b]));
-  const si = slots.map((_, k) => k).sort((a, b) => ang(slots[a]) - ang(slots[b]));
-  const out = new Array(movers.length);
-  mi.forEach((m, r) => { out[m] = slots[si[r]]; });
-  return out;
-}
 
-/* ==================== Delaunay + alpha shape ==================== */
-// Bowyer-Watson triangulation; triangles as index triples
-function delaunay(pts){
-  const n = pts.length, big = 1e5;
-  const V = pts.concat([[-big, -big], [big, -big], [0, big]]);
-  let tris = [[n, n+1, n+2]];
-  const circ = t => {
-    const [a, b, c] = t.map(i => V[i]);
-    const d = 2*(a[0]*(b[1]-c[1]) + b[0]*(c[1]-a[1]) + c[0]*(a[1]-b[1]));
-    const ux = ((a[0]**2 + a[1]**2)*(b[1]-c[1]) + (b[0]**2 + b[1]**2)*(c[1]-a[1]) + (c[0]**2 + c[1]**2)*(a[1]-b[1])) / d;
-    const uy = ((a[0]**2 + a[1]**2)*(c[0]-b[0]) + (b[0]**2 + b[1]**2)*(a[0]-c[0]) + (c[0]**2 + c[1]**2)*(b[0]-a[0])) / d;
-    return [ux, uy, (ux-a[0])**2 + (uy-a[1])**2];
-  };
-  for (let i = 0; i < n; i++){
-    const p = V[i], bad = [], keep = [];
-    for (const t of tris){ const c = circ(t); ((p[0]-c[0])**2 + (p[1]-c[1])**2 < c[2] ? bad : keep).push(t); }
-    const cnt = new Map();
-    for (const t of bad) for (const [a, b] of [[t[0],t[1]],[t[1],t[2]],[t[2],t[0]]]){
-      const k = a < b ? a+","+b : b+","+a; cnt.set(k, (cnt.get(k) || 0) + 1);
-    }
-    tris = keep;
-    cnt.forEach((c, k) => { if (c === 1){ const [a, b] = k.split(",").map(Number); tris.push([a, b, i]); } });
-  }
-  return tris.filter(t => t.every(i => i < n));
-}
-function circumR(a, b, c){
-  const area2 = Math.abs(cross(a, b, c));
-  return area2 > 1e-9 ? dist(b, c)*dist(a, c)*dist(a, b) / (2*area2) : Infinity;
-}
-// kept triangles + boundary edges (edges used by exactly one kept triangle)
-function alphaShape(pts, R){
-  const tris = delaunay(pts).filter(t => circumR(pts[t[0]], pts[t[1]], pts[t[2]]) <= R);
+/* ==================== alpha shape outline from the stored simplices ==================== */
+function boundaryEdges(simp){
   const cnt = new Map();
-  for (const t of tris) for (const [a, b] of [[t[0],t[1]],[t[1],t[2]],[t[2],t[0]]]){
+  for (const t of simp) for (const [a, b] of [[t[0],t[1]],[t[1],t[2]],[t[2],t[0]]]){
     const k = a < b ? a+","+b : b+","+a; cnt.set(k, (cnt.get(k) || 0) + 1);
   }
-  const edges = []; cnt.forEach((c, k) => { if (c === 1) edges.push(k.split(",").map(Number)); });
-  return {tris, edges};
+  const out = []; cnt.forEach((c, k) => { if (c === 1) out.push(k.split(",").map(Number)); });
+  return out;
 }
 // chain boundary edges into closed loops (one path; evenodd fill handles any holes)
 function loopsPath(pts, edges){
@@ -240,8 +143,7 @@ function loopsPath(pts, edges){
   for (const [a0, b0] of edges){
     if (used.has(key(a0, b0))) continue;
     used.add(key(a0, b0));
-    const loop = [a0, b0];
-    let prev = a0, cur = b0;
+    const loop = [a0, b0]; let prev = a0, cur = b0;
     while (cur !== a0){
       const next = (adj.get(cur) || []).find(v => v !== prev && !used.has(key(cur, v)));
       if (next === undefined) break;
@@ -251,124 +153,6 @@ function loopsPath(pts, edges){
   }
   return d;
 }
-
-/* ==================== step 1: even layout inside the convex hull ==================== */
-const HULL0 = hullIdx(BASE);
-const HULL0_POLY = HULL0.map(i => BASE[i]);
-const isHull = new Set(HULL0);
-const G = centroid(HULL0_POLY);                                   // centre used by FDiv
-const ORIENT = Math.sign(HULL0_POLY.reduce((acc, p, k) => { const q = HULL0_POLY[(k+1) % HULL0_POLY.length]; return acc + (p[0]*q[1] - q[0]*p[1]); }, 0));
-const insideHull = p => HULL0_POLY.every((a, k) => ORIENT * cross(a, HULL0_POLY[(k+1) % HULL0_POLY.length], p) >= 0);
-
-const EVEN = (() => {
-  const sites = BASE.map(p => p.slice()), step = 4, samples = [];
-  for (let x = x0; x <= x1; x += step) for (let y = y1; y <= y0; y += step) if (insideHull([x, y])) samples.push([x, y]);
-  for (let it = 0; it < 80; it++){
-    const sx = new Float64Array(sites.length), sy = new Float64Array(sites.length), sn = new Float64Array(sites.length);
-    for (const s of samples){
-      let best = 0, bd = Infinity;
-      for (let j = 0; j < sites.length; j++){ const d = (s[0]-sites[j][0])**2 + (s[1]-sites[j][1])**2; if (d < bd){ bd = d; best = j; } }
-      sx[best] += s[0]; sy[best] += s[1]; sn[best]++;
-    }
-    sites.forEach((_, i) => { if (!isHull.has(i) && sn[i]) sites[i] = [sx[i]/sn[i], sy[i]/sn[i]]; });
-  }
-  return sites;
-})();
-
-/* ==================== step 2: the one alpha shape ==================== */
-const ALPHA = (() => {
-  const a = parseFloat(P.get("alpha"));
-  if (a > 0) return a;
-  const nn = EVEN.map((p, i) => Math.min(...EVEN.map((q, j) => i === j ? Infinity : dist(p, q)))).sort((x, y) => x - y);
-  return 1.5 * nn[Math.floor(nn.length/2)];
-})();
-const A = alphaShape(EVEN, ALPHA);
-const A_TRIS = A.tris.map(t => t.map(i => EVEN[i]));
-const A_EDGES = A.edges.map(([a, b]) => [EVEN[a], EVEN[b]]);
-const A_PATH = loopsPath(EVEN, A.edges);
-
-// species that stay put: on the shape's boundary, or not in any kept triangle
-const inSomeTri = new Set([].concat(...A.tris));
-const FIXED = new Set([].concat(...A.edges));
-EVEN.forEach((_, i) => { if (!inSomeTri.has(i)) FIXED.add(i); });
-const MOVERS = EVEN.map((_, i) => i).filter(i => !FIXED.has(i));
-
-// how far p sits inside the alpha shape (negative = outside)
-function insideA(p){
-  if (!A_TRIS.some(([a, b, c]) => inTri(p, a, b, c))) return -1;
-  return Math.min(...A_EDGES.map(([a, b]) => segDist(p, a, b)));
-}
-// centre for placing species: G if it is well inside the shape, otherwise the shape's area centroid
-const C = (() => {
-  if (insideA(G) >= 20) return G;
-  let sx = 0, sy = 0, s = 0;
-  for (const [a, b, c] of A_TRIS){ const w = Math.abs(cross(a, b, c)); sx += w*(a[0]+b[0]+c[0])/3; sy += w*(a[1]+b[1]+c[1])/3; s += w; }
-  return [sx/s, sy/s];
-})();
-// pull each slot toward `c` until it is at least `margin` px inside the shape
-const keepIn = (slots, c, margin) => slots.map(p => {
-  for (let t = 0; t <= 1; t += .02){ const q = lerp(p, c, t); if (insideA(q) >= margin) return q; }
-  return c;
-});
-
-/* ==================== step 3: configurations (only MOVERS change) ==================== */
-const evenPos = MOVERS.map(i => EVEN[i]);
-
-// LOW evenness: two tight groups on either side of the centre, along the shape's longest direction
-const CLUMP = (() => {
-  const bnd = [...FIXED].map(i => EVEN[i]);
-  let a = bnd[0], b = bnd[1], best = 0;
-  for (const p of bnd) for (const q of bnd){ const d = dist(p, q); if (d > best){ best = d; a = p; b = q; } }
-  const cA = keepIn([lerp(C, a, .45)], C, 22)[0], cB = keepIn([lerp(C, b, .45)], C, 22)[0];
-  const inA = evenPos.map(p => dist(p, cA) <= dist(p, cB));
-  const movA = evenPos.filter((_, k) => inA[k]), movB = evenPos.filter((_, k) => !inA[k]);
-  const resA = matchByAngle(movA, keepIn(sunflower(cA, movA.length, 13), cA, 7), cA);
-  const resB = matchByAngle(movB, keepIn(sunflower(cB, movB.length, 13), cB, 7), cB);
-  let ia = 0, ib = 0;
-  return evenPos.map((_, k) => inA[k] ? resA[ia++] : resB[ib++]);
-})();
-
-// LOW divergence: packed around the centre
-const CENTRE = matchByAngle(evenPos, keepIn(sunflower(C, evenPos.length, 15), C, 7), C);
-
-// HIGH divergence: each species walks out from the centre along its own direction to just inside the edge
-const EDGE = evenPos.map(p => {
-  const dx = p[0] - C[0], dy = p[1] - C[1], L = Math.hypot(dx, dy) || 1, u = [dx/L, dy/L];
-  let good = C;
-  for (let s = 0; s < 600; s += 1){
-    const q = [C[0] + u[0]*s, C[1] + u[1]*s];
-    if (insideA(q) >= 14) good = q; else if (insideA(q) < 0) break;
-  }
-  return good;
-});
-
-function withMovers(posList){ const pts = EVEN.map(p => p.slice()); MOVERS.forEach((i, k) => { pts[i] = posList[k]; }); return pts; }
-
-// signature of an alpha shape: its boundary edges + its area
-function shapeSig(pts){
-  const a = alphaShape(pts, ALPHA);
-  const area = a.tris.reduce((s, t) => s + Math.abs(cross(pts[t[0]], pts[t[1]], pts[t[2]])), 0) / 2;
-  return a.edges.map(([u, v]) => u < v ? u+","+v : v+","+u).sort().join("|") + "#" + area.toFixed(3);
-}
-const SIG0 = shapeSig(EVEN);
-// keep the true alpha shape identical along the evenness loop: shorten the clumping path if needed
-const CLUMP_SAFE = (() => {
-  const at = k => evenPos.map((p, i) => lerp(p, CLUMP[i], k));
-  let kOk = 0;
-  for (let k = .005; k <= 1.0001; k += .005){ if (shapeSig(withMovers(at(Math.min(k, 1)))) === SIG0) kOk = Math.min(k, 1); else break; }
-  return at(kOk);
-})();
-const EVE_KEYS = [withMovers(CLUMP_SAFE), withMovers(evenPos), withMovers(CLUMP_SAFE)];
-// same for divergence: walk from the centre toward the edge only as far as the alpha shape stays identical
-const EDGE_SAFE = (() => {
-  const at = k => CENTRE.map((p, i) => lerp(p, EDGE[i], k));
-  if (shapeSig(withMovers(CENTRE)) !== SIG0) return CENTRE;
-  let kOk = 0;
-  for (let k = .005; k <= 1.0001; k += .005){ if (shapeSig(withMovers(at(Math.min(k, 1)))) === SIG0) kOk = Math.min(k, 1); else break; }
-  return at(kOk);
-})();
-const DIV_KEYS = [withMovers(CENTRE), withMovers(EDGE_SAFE), withMovers(CENTRE)];
-
 
 /* ==================== indices (equal abundances) ==================== */
 function mstEdges(pts){
@@ -387,10 +171,10 @@ function fEve(pts){
   const S = pts.length, e = mstEdges(pts), tot = e.reduce((s, x) => s + x[2], 0), k = 1/(S - 1);
   return (e.reduce((s, x) => s + Math.min(x[2]/tot, k), 0) - k) / (1 - k);
 }
+function centreOf(pts){ const h = hullIdx(pts); return h.reduce((c, i) => [c[0] + pts[i][0]/h.length, c[1] + pts[i][1]/h.length], [0, 0]); }
 function fDiv(pts){
-  const d = pts.map(p => dist(p, G)), m = d.reduce((s, x) => s + x, 0) / d.length;
-  const absDev = d.reduce((s, x) => s + Math.abs(x - m), 0) / d.length;
-  return m / (absDev + m);                         // Δd = 0 with equal abundances
+  const G = centreOf(pts), d = pts.map(p => dist(p, G)), m = d.reduce((s, x) => s + x, 0) / d.length;
+  return m / (d.reduce((s, x) => s + Math.abs(x - m), 0) / d.length + m);   // Δd = 0 with equal abundances
 }
 
 /* ==================== drawing ==================== */
@@ -413,15 +197,12 @@ function drawAxes(svg){
 function makePanel(svgId, kind){
   const svg = document.getElementById(svgId);
   drawAxes(svg);
-  // the true alpha shape of the drawn points, recomputed every frame (identical by construction)
-  const shape = el("path", {d:A_PATH, class:"shape"}, svg);
+  const shape = el("path", {class:"shape"}, svg);
   const guide = el("path", {class:"guide"}, svg);
-  if (GUIDES && kind === "div"){
-    const s = 7;
-    el("path", {d:`M${G[0]-s},${G[1]-s}L${G[0]+s},${G[1]+s}M${G[0]-s},${G[1]+s}L${G[0]+s},${G[1]-s}`, class:"centre"}, svg);
-  }
+  const cross_ = el("path", {class:"centre"}, svg);
   const gPts = el("g", {}, svg);
-  const dots = EVEN.map(() => el("circle", {r:5, class:"pt"}, gPts));
+  const n = DATA[kind + "_low"].pts.length;
+  const dots = Array.from({length:n}, () => el("circle", {r:5, class:"pt"}, gPts));
   let state = null, val = null;
   if (SHOW_STATE) state = el("text", {x:x1, y:y1 + 4, "text-anchor":"end", "dominant-baseline":"hanging", class:"state"}, svg);
   if (SHOW_VAL){
@@ -431,28 +212,29 @@ function makePanel(svgId, kind){
   }
   const word = kind === "eve" ? "EVENNESS" : "DIVERGENCE";
   return {
-    render(pts, high){
+    render(high){
+      const st = DATA[kind + (high ? "_high" : "_low")], pts = st.pts;
+      shape.setAttribute("d", loopsPath(pts, boundaryEdges(st.simp)));
       dots.forEach((d, i) => { d.setAttribute("cx", f1(pts[i][0])); d.setAttribute("cy", f1(pts[i][1])); });
-      shape.setAttribute("d", loopsPath(pts, alphaShape(pts, ALPHA).edges));
       if (GUIDES){
+        const G = centreOf(pts);
         guide.setAttribute("d", kind === "eve"
           ? mstEdges(pts).map(([a, b]) => `M${f1(pts[a][0])},${f1(pts[a][1])}L${f1(pts[b][0])},${f1(pts[b][1])}`).join("")
           : pts.map(p => `M${f1(G[0])},${f1(G[1])}L${f1(p[0])},${f1(p[1])}`).join(""));
+        if (kind === "div"){ const s = 7; cross_.setAttribute("d", `M${G[0]-s},${G[1]-s}L${G[0]+s},${G[1]+s}M${G[0]-s},${G[1]+s}L${G[0]+s},${G[1]-s}`); }
       }
       if (state) state.textContent = (high ? "HIGH " : "LOW ") + word;
       if (val) val.textContent = (kind === "eve" ? fEve(pts) : fDiv(pts)).toFixed(2);
     }
   };
 }
-const evePanel = makePanel("svgEve", "eve");
-const divPanel = makePanel("svgDiv", "div");
+const PANELS = {eve: {panel: makePanel("svgEve", "eve"), tag: "Eve"}, div: {panel: makePanel("svgDiv", "div"), tag: "Div"}};
 
 /* ==================== low / high toggles ==================== */
 const STATE = {eve: P.get("eve") === "high", div: P.get("div") === "high"};
-const PANELS = {eve: {panel: evePanel, keys: EVE_KEYS, tag: "Eve"}, div: {panel: divPanel, keys: DIV_KEYS, tag: "Div"}};
 function show(kind){
-  const {panel, keys, tag} = PANELS[kind], high = STATE[kind];
-  panel.render(keys[high ? 1 : 0], high);
+  const {panel, tag} = PANELS[kind], high = STATE[kind];
+  panel.render(high);
   const sw = document.getElementById("sw" + tag);
   sw.classList.toggle("on", high); sw.setAttribute("aria-checked", String(high));
   document.getElementById("lo" + tag).classList.toggle("active", !high);
@@ -476,9 +258,8 @@ if (bc) bc.onmessage = e => {
   if (m.cmd === "ping") postStatus();
 };
 
-/* ==================== init ==================== */
 show("eve"); show("div"); postStatus();
-window.evenDiv = {shapeSig, SIG0, EVEN, ALPHA, MOVERS, FIXED, EVE_KEYS, DIV_KEYS, fEve, fDiv, alphaShape, delaunay, insideA, G, set};
+window.evenDiv = {DATA, fEve, fDiv, set};
 })();
 </script>
 </body>
