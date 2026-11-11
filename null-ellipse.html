@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Null Ellipse</title>
+<style>
+:root{
+  --bg:#ffffff; --fg:#1f2328; --muted:#6b7280; --line:#e8eaed; --ghost:#9aa3ad;
+  --occ:#d6d3cc; --gap:#9db9f6; --beyond:#df9063; --edge:#4a4a52; --pt:#111111; --accent:#2563eb;
+}
+:root[data-theme="dark"]{
+  --bg:#111418; --fg:#e6e8eb; --muted:#9aa3ad; --line:#262b31; --ghost:#5b636d;
+  --occ:#4a4844; --gap:#3f5f9e; --beyond:#a8613b; --edge:#c9ccd1; --pt:#f2f3f5; --accent:#60a5fa;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+  font:14px/1.4 Inter,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+html.transparent,html.transparent body{background:transparent}
+body{display:flex;align-items:center;justify-content:center;gap:4%;padding:12px 16px}
+.plot{flex:0 1 58%;height:100%;min-width:0;display:flex;flex-direction:column;align-items:center}
+svg{flex:1;min-height:0;width:100%;display:block;user-select:none}
+.legend{flex:0 1 34%;display:flex;flex-direction:column;gap:clamp(18px,4.5vh,44px)}
+.item{display:flex;gap:18px;align-items:flex-start}
+.sw{flex:none;width:clamp(34px,3.2vw,60px);aspect-ratio:1.15;border-radius:6px;margin-top:2px}
+.sw.occ{background:var(--occ);border:2px solid var(--edge)}
+.sw.gap{background:var(--gap)}
+.sw.beyond{background:var(--beyond)}
+.sw.null{background:none;border:2.5px dashed var(--fg);border-radius:50%;aspect-ratio:1;transition:border-radius 400ms ease,transform 400ms ease}
+.sw.null.ell{transform:scaleX(1.15) scaleY(.78)}
+.ttl{font-size:var(--lfs,30px);font-weight:700;line-height:1.15}
+.sub{font-size:var(--sfs,22px);color:var(--muted);line-height:1.35;margin-top:4px}
+.region{stroke:none}
+.occ{fill:var(--occ)} .gap{fill:var(--gap)} .beyond{fill:var(--beyond)}
+.aedge{fill:none;stroke:var(--edge);stroke-width:2.6;stroke-linejoin:round}
+.nulledge{fill:none;stroke:var(--fg);stroke-width:3.4;stroke-dasharray:12 9}
+.pt{fill:var(--pt)}
+.cen circle{fill:var(--bg);stroke:var(--fg);stroke-width:4}
+.cen path{stroke:var(--fg);stroke-width:4}
+ellipse.morph{transition:rx 500ms cubic-bezier(.4,0,.2,1),ry 500ms cubic-bezier(.4,0,.2,1)}
+/* toggle (same instrument as geometric-toggle-alter.html) */
+.control{display:flex;align-items:center;gap:10px;margin-top:4px;user-select:none}
+.control.hidden{display:none}
+.control-label{font-size:var(--cfs,16px);color:var(--ghost);letter-spacing:.02em;width:110px;cursor:pointer;transition:color 200ms ease}
+.control-label.left{text-align:right}
+.control-label.right{text-align:left}
+.control-label.active{color:var(--fg);font-weight:600}
+.switch{position:relative;width:54px;height:22px;background:var(--line);border-radius:11px;border:1px solid var(--ghost);cursor:pointer;flex:none}
+.knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--ghost);transition:transform 260ms cubic-bezier(.4,0,.2,1)}
+.switch.on .knob{transform:translateX(32px);background:var(--accent)}
+.switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:640px){ body{flex-direction:column} .plot{flex:1 1 60%;width:100%} .legend{width:100%;gap:14px} }
+</style>
+</head>
+<body>
+  <div class="plot">
+    <svg id="svg" viewBox="120 40 1030 950" preserveAspectRatio="xMidYMid meet"
+         aria-label="Alpha shape compared with an equal-area null centred on the centroid"></svg>
+    <div class="control" id="ctl">
+      <span class="control-label left" id="lSph">Null sphere</span>
+      <div class="switch on" id="sw" role="switch" aria-checked="true" tabindex="0" aria-label="Null sphere or null ellipse"><div class="knob"></div></div>
+      <span class="control-label right active" id="lEll">Null ellipse</span>
+    </div>
+  </div>
+  <div class="legend">
+    <div class="item"><div class="sw occ"></div><div><div class="ttl">α-shape</div><div class="sub">occupied trait space</div></div></div>
+    <div class="item"><div class="sw null ell" id="nullSw"></div><div><div class="ttl" id="nullTtl">Null ellipse</div><div class="sub" id="nullSub">centred on the centroid,<br>same volume as the α-shape,<br>not equal in every direction</div></div></div>
+    <div class="item"><div class="sw gap"></div><div><div class="ttl">In null, not in α-shape</div><div class="sub">constraint / competitive exclusion?</div></div></div>
+    <div class="item"><div class="sw beyond"></div><div><div class="ttl">In α-shape, beyond null</div><div class="sub">character displacement /<br>directional advantage?</div></div></div>
+  </div>
+
+<script>
+(function(){
+"use strict";
+/* ============================================================
+   α-shape vs an equal-volume null centred on the centroid.
+
+   Points: the 59 species of the original null-sphere figure (read off that image, in its pixel units).
+   α-shape: computed in R with AlphaRichness, unchanged (alpha_richness(); k = 2.25 from find_stable_k()),
+   stored below as the kept Delaunay simplices (0-based). One cluster, no species left out, 86 of 104 kept.
+   Null: centred on the species' centroid, same area as the α-shape.
+     sphere  — equal in every direction (radius sqrt(area/π)): the neutral expectation.
+     ellipse — same area, axis ratio `ratio` (major/minor), rotated by `angle`: a non-neutral null.
+               These species' traits are nearly isotropic (covariance axis ratio ≈ 1.03), so the
+               elongation is a chosen illustration, not estimated from the data. With no `angle` given,
+               the ellipse is turned to the angle that overlaps the α-shape most for that ratio.
+
+   Options
+     null=sphere      start on the sphere (default: ellipse)
+     ratio=1.6        ellipse axis ratio (major / minor)
+     angle=…          ellipse rotation in degrees (clockwise on screen); default = best overlap
+     toggle=0         hide the sphere / ellipse switch
+     lfs / sfs / cfs  legend-title / legend-subtitle / toggle-label font size (px)
+     theme=dark|auto, bg=transparent
+     channel=…        BroadcastChannel name (default "nullellipse"); message {cmd:"set", arg:true (ellipse) | false (sphere)}
+   ============================================================ */
+const DATA = {"pts":[[810.2,83.5],[502.8,94.4],[885.5,109.2],[341.5,141.4],[353.5,140.6],[940.9,167.4],[312.1,169.6],[888.3,208.2],[892.8,246.8],[465.7,249.4],[755.7,253.7],[875.3,277.3],[595.4,295.2],[844.4,297.3],[524.3,298.4],[512.2,306.5],[683.2,314.3],[693.1,324.0],[257.4,324.6],[936.7,331.2],[479.8,332.5],[420.0,337.7],[511.2,342.5],[831.7,345.7],[397.6,350.8],[389.7,362.3],[918.5,367.8],[892.5,368.8],[168.8,394.5],[1024.5,396.2],[717.3,397.3],[872.7,399.2],[1011.5,441.4],[468.7,467.4],[826.5,492.2],[534.7,498.8],[938.2,514.2],[718.3,515.3],[691.7,568.7],[643.3,595.3],[1102.4,614.8],[432.4,662.0],[818.5,661.2],[618.9,678.8],[557.1,689.2],[750.8,691.2],[401.5,693.8],[777.8,694.8],[227.5,717.2],[796.8,731.5],[547.7,745.3],[561.1,785.5],[621.7,790.8],[806.3,796.1],[624.7,809.7],[680.7,817.6],[696.3,841.6],[298.2,850.2],[764.0,963.5]],"simp":[[9,21,6],[7,2,0],[24,6,18],[24,21,6],[4,9,1],[4,6,3],[4,9,6],[56,53,58],[56,53,55],[45,43,39],[52,45,55],[52,45,43],[25,21,33],[25,24,21],[25,18,28],[25,24,18],[20,21,33],[20,22,33],[20,9,21],[35,22,33],[35,37,30],[35,41,33],[31,30,23],[12,35,30],[12,35,22],[12,22,14],[12,9,14],[12,9,1],[10,7,0],[10,12,16],[5,7,2],[47,45,42],[49,53,55],[49,45,55],[49,47,45],[49,47,42],[38,37,42],[38,45,42],[38,45,39],[38,35,39],[38,35,37],[54,52,51],[54,56,55],[54,52,55],[44,35,41],[44,43,39],[44,35,39],[46,48,57],[15,9,14],[15,20,9],[15,22,14],[15,20,22],[27,31,23],[27,11,19],[34,37,42],[34,37,30],[34,31,30],[17,10,23],[17,10,16],[17,30,23],[17,12,30],[17,12,16],[8,11,7],[8,11,19],[8,5,7],[8,5,19],[13,10,7],[13,11,7],[13,10,23],[13,27,23],[13,27,11],[50,44,41],[50,46,41],[50,46,51],[50,52,51],[50,52,43],[50,44,43],[36,34,42],[36,32,40],[36,34,31],[26,27,19],[26,29,19],[26,29,32],[26,27,31],[26,36,32],[26,36,31]],"k":2.25,"area":355663.4};
+
+const P = new URLSearchParams(location.search);
+const root = document.documentElement, theme = P.get("theme");
+if (theme === "dark" || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)) root.dataset.theme = "dark";
+if (P.get("bg") === "transparent") root.classList.add("transparent");
+for (const k of ["lfs", "sfs", "cfs"]) if (parseFloat(P.get(k)) > 0) root.style.setProperty("--" + k, parseFloat(P.get(k)) + "px");
+if (P.get("toggle") === "0") document.getElementById("ctl").classList.add("hidden");
+
+const pts = DATA.pts, f1 = v => v.toFixed(1);
+const polyArea = poly => Math.abs(poly.reduce((s, p, k) => { const q = poly[(k+1) % poly.length]; return s + p[0]*q[1] - q[0]*p[1]; }, 0)) / 2;
+const AREA = DATA.simp.reduce((s, t) => s + polyArea(t.map(i => pts[i])), 0);
+const C = pts.reduce((c, p) => [c[0] + p[0]/pts.length, c[1] + p[1]/pts.length], [0, 0]);
+const RATIO = Math.max(1, parseFloat(P.get("ratio")) || 1.6);
+const R0 = Math.sqrt(AREA / Math.PI);
+const RX = R0 * Math.sqrt(RATIO), RY = R0 / Math.sqrt(RATIO);
+
+/* ---------- α-shape outline from the stored simplices ---------- */
+function boundaryEdges(simp){
+  const cnt = new Map();
+  for (const t of simp) for (const [a, b] of [[t[0],t[1]],[t[1],t[2]],[t[2],t[0]]]){
+    const k = a < b ? a+","+b : b+","+a; cnt.set(k, (cnt.get(k) || 0) + 1);
+  }
+  const out = []; cnt.forEach((c, k) => { if (c === 1) out.push(k.split(",").map(Number)); });
+  return out;
+}
+function loopsPath(edges){
+  const adj = new Map(), used = new Set(), key = (a, b) => a < b ? a+","+b : b+","+a;
+  for (const [a, b] of edges){ (adj.get(a) || adj.set(a, []).get(a)).push(b); (adj.get(b) || adj.set(b, []).get(b)).push(a); }
+  let d = "";
+  for (const [a0, b0] of edges){
+    if (used.has(key(a0, b0))) continue;
+    used.add(key(a0, b0));
+    const loop = [a0, b0]; let prev = a0, cur = b0;
+    while (cur !== a0){
+      const next = (adj.get(cur) || []).find(v => v !== prev && !used.has(key(cur, v)));
+      if (next === undefined) break;
+      used.add(key(cur, next)); loop.push(next); prev = cur; cur = next;
+    }
+    d += "M" + loop.map(i => f1(pts[i][0]) + "," + f1(pts[i][1])).join("L") + "Z";
+  }
+  return d;
+}
+const A_PATH = loopsPath(boundaryEdges(DATA.simp));
+
+/* ---------- default angle: most overlap with the α-shape (grid estimate) ---------- */
+function inTri(p, a, b, c){
+  const s = (o, u, v) => (u[0]-o[0])*(v[1]-o[1]) - (u[1]-o[1])*(v[0]-o[0]);
+  const d1 = s(a, b, p), d2 = s(b, c, p), d3 = s(c, a, p);
+  return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
+}
+const ANGLE = (() => {
+  const a = parseFloat(P.get("angle"));
+  if (isFinite(a)) return a;
+  if (RATIO === 1) return 0;
+  const tris = DATA.simp.map(t => t.map(i => pts[i])), S = [];
+  for (let x = 120; x < 1150; x += 8) for (let y = 40; y < 990; y += 8)
+    if (tris.some(([p, q, r]) => inTri([x, y], p, q, r))) S.push([x - C[0], y - C[1]]);
+  let best = 0, bestN = -1;
+  for (let deg = 0; deg < 180; deg += 2){
+    const th = deg * Math.PI/180, c = Math.cos(th), s = Math.sin(th);
+    let n = 0;
+    for (const [dx, dy] of S){ const u = dx*c + dy*s, v = -dx*s + dy*c; if ((u/RX)**2 + (v/RY)**2 <= 1) n++; }
+    if (n > bestN){ bestN = n; best = deg; }
+  }
+  return best;
+})();
+
+/* ---------- drawing ---------- */
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent){
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const svg = document.getElementById("svg");
+const rot = `rotate(${ANGLE} ${f1(C[0])} ${f1(C[1])})`;
+const defs = el("defs", {}, svg);
+const clip = el("clipPath", {id:"nullClip"}, defs);
+const ellAttrs = {cx:f1(C[0]), cy:f1(C[1]), transform:rot, class:"morph"};
+const nullClip = el("ellipse", ellAttrs, clip);
+const nullFill = el("ellipse", {...ellAttrs, class:"morph region gap"}, svg);           // null, outside the α-shape
+el("path", {d:A_PATH, class:"region beyond", "fill-rule":"evenodd"}, svg);              // α-shape, outside the null
+el("path", {d:A_PATH, class:"region occ", "fill-rule":"evenodd", "clip-path":"url(#nullClip)"}, svg);  // both
+el("path", {d:A_PATH, class:"aedge"}, svg);
+const nullEdge = el("ellipse", {...ellAttrs, class:"morph nulledge"}, svg);
+const g = el("g", {}, svg);
+pts.forEach(p => el("circle", {cx:f1(p[0]), cy:f1(p[1]), r:8, class:"pt"}, g));
+const cen = el("g", {class:"cen"}, svg);
+el("circle", {cx:f1(C[0]), cy:f1(C[1]), r:18}, cen);
+el("path", {d:`M${f1(C[0]-10)},${f1(C[1])}H${f1(C[0]+10)}M${f1(C[0])},${f1(C[1]-10)}V${f1(C[1]+10)}`}, cen);
+
+/* ---------- sphere / ellipse toggle ---------- */
+const sw = document.getElementById("sw");
+let ellipse = P.get("null") !== "sphere";
+function setNull(on){
+  ellipse = !!on;
+  const rx = ellipse ? RX : R0, ry = ellipse ? RY : R0;
+  for (const e of [nullClip, nullFill, nullEdge]){ e.setAttribute("rx", f1(rx)); e.setAttribute("ry", f1(ry)); e.style.rx = f1(rx) + "px"; e.style.ry = f1(ry) + "px"; }
+  sw.classList.toggle("on", ellipse); sw.setAttribute("aria-checked", String(ellipse));
+  document.getElementById("lSph").classList.toggle("active", !ellipse);
+  document.getElementById("lEll").classList.toggle("active", ellipse);
+  document.getElementById("nullSw").classList.toggle("ell", ellipse);
+  document.getElementById("nullTtl").textContent = ellipse ? "Null ellipse" : "Null sphere";
+  document.getElementById("nullSub").innerHTML = ellipse
+    ? "centred on the centroid,<br>same volume as the α-shape,<br>not equal in every direction"
+    : "centred on the centroid,<br>same volume as the α-shape";
+  if (bc) bc.postMessage({cmd:"status", arg:{ellipse}});
+}
+sw.addEventListener("click", () => setNull(!ellipse));
+sw.addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter"){ e.preventDefault(); setNull(!ellipse); } });
+document.getElementById("lSph").addEventListener("click", () => setNull(false));
+document.getElementById("lEll").addEventListener("click", () => setNull(true));
+const bc = ("BroadcastChannel" in window) ? new BroadcastChannel(P.get("channel") || "nullellipse") : null;
+if (bc) bc.onmessage = e => { const m = e.data || {}; if (m.cmd === "set") setNull(m.arg); if (m.cmd === "ping") bc.postMessage({cmd:"status", arg:{ellipse}}); };
+
+setNull(ellipse);
+window.nullEllipse = {DATA, AREA, C, R0, RX, RY, RATIO, ANGLE, setNull};
+})();
+</script>
+</body>
+</html>
