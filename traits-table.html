@@ -100,7 +100,7 @@ const thead = $("tbl").tHead, tbody = $("tbl").tBodies[0];
   hr.innerHTML = "<th>Species</th>" + Array.from({length:NT}, (_, j) => `<th>${colLabel(j)}</th>`).join("");
   for (let i = 0; i < N; i++){
     const tr = tbody.insertRow();
-    tr.innerHTML = `<td>Species ${i+1}</td>` + "<td><span class='sk'></span></td>".repeat(NT);
+    tr.innerHTML = `<td>Bat species ${i+1}</td>` + "<td><span class='sk'></span></td>".repeat(NT);
   }
 }
 const rows = Array.from(tbody.rows);
