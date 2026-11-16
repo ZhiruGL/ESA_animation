@@ -205,7 +205,7 @@ console.log("triangles", NT, "| MST fence", f2(FENCE), "| gaps", GAPS.length,
 // =====================================================================
 // DRAWING
 // =====================================================================
-const W = 820, H = 900;
+const W = 820, H = 840;
 const XL = [-0.51, 10.71], YL = [-0.42, 8.72];
 const PL = 92;                                     // plot left (px)
 const SC = (W - PL - 48) / (XL[1] - XL[0]);        // px per trait unit (equal aspect)
@@ -219,6 +219,8 @@ function freshState() {
   return {
     step: 1,
     tri: new Array(NT).fill(null),     // fill colour per triangle (null = not drawn)
+    strokeA: 1,                        // opacity of the white triangle edges
+    strokeGrayA: 1,                    // extra factor for edges of grey (earlier-removed) triangles
     triA: new Array(NT).fill(1),       // opacity per triangle
     mstN: 0, mstA: 1,                  // MST edges shown (in Kruskal order) and opacity
     gapA: 0,                           // opacity of the red dashed gap edges
@@ -261,7 +263,11 @@ function draw() {
     if (!state.tri[i]) continue;
     ctx.globalAlpha = state.triA[i];
     triPath(i); ctx.fillStyle = state.tri[i]; ctx.fill();
-    ctx.strokeStyle = "#fff"; ctx.lineWidth = 0.9; ctx.stroke();
+    ctx.strokeStyle = state.tri[i]; ctx.lineWidth = 0.7; ctx.stroke();   // hide anti-aliasing seams
+  }
+  if (state.strokeA > 0) {
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 0.9;
+    for (let i = 0; i < NT; i++) { if (!state.tri[i]) continue; ctx.globalAlpha = state.strokeA * state.triA[i] * (state.tri[i] === COL.earlier ? state.strokeGrayA : 1); triPath(i); ctx.stroke(); }
   }
   ctx.globalAlpha = 1;
   if (state.mstN > 0 && state.mstA > 0) {
@@ -303,11 +309,6 @@ function draw() {
   ctx.fillText("Trait 1", (PL + PR) / 2, PB + 34);
   ctx.save(); ctx.translate(PL - 52, (PT + PB) / 2); ctx.rotate(-Math.PI / 2); ctx.textBaseline = "middle"; ctx.fillText("Trait 2", 0, 0); ctx.restore();
 
-  // status line
-  if (state.status) {
-    ctx.fillStyle = COL.text; ctx.font = "italic 17px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(state.status, (PL + PR) / 2, PB + 84);
-  }
   // legend
   const items = [[COL.kept, "= Kept"], [COL.removed, "= Removed"], [COL.earlier, "= Removed in Earlier Steps"]];
   ctx.font = "17px " + FONT; ctx.textBaseline = "middle"; ctx.textAlign = "left";
@@ -373,87 +374,66 @@ function radiusLabelPos(i) {    // put labels just outside the circumcircle, ins
 function applyEnd(k) {
   const s = freshState(); s.step = Math.max(1, k);
   if (k >= 1) s.tri.fill(COL.kept);
-  if (k === 2) { s.tri.fill(COL.keptLight); s.mstN = MST.length; s.gapA = 1; }
+  if (k === 2) { s.tri.fill(COL.keptLight); s.mstN = MST.length; s.gapA = 1; s.strokeA = 0; }
   if (k >= 3) S3.removed.forEach(i => s.tri[i] = k === 3 ? COL.removed : COL.earlier);
   if (k >= 4) S4.removed.forEach(i => s.tri[i] = k === 4 ? COL.removed : COL.earlier);
+  if (k === 4) s.strokeGrayA = 0;
   if (k >= 5) removed5.forEach(i => s.tri[i] = k === 5 ? COL.removed : COL.earlier);
   if (k >= 6) ALPHA.forEach(a => s.tri[a.tri] = COL.pink);
   return s;
 }
-function startState(k) { const s = applyEnd(k - 1); s.step = k; s.status = ""; if (k === 1) s.tri.fill(null); return s; }
-function finishStep6Overlays() {          // static decorations of panel 6
-  ALPHA.forEach((a, k) => { const ov = alphaOverlay(a, k); ov.forEach(o => o.a = 1); });
-}
+function startState(k) { const s = applyEnd(k - 1); s.step = k; if (k === 1) s.tri.fill(null); return s; }
+function finishStep6Overlays() { ALPHA.forEach((a, k) => alphaOverlay(a, k).forEach(o => o.a = 1)); }
 
 // =====================================================================
-// STEP ANIMATIONS
+// STEP ANIMATIONS (each step is a list of phases; one click = one phase)
 // =====================================================================
-const ANIM = {};
+const allIdx = () => T.map((_, i) => i);
+const area = i => { const [a, b, c] = T[i]; return Math.abs((P[b][0] - P[a][0]) * (P[c][1] - P[a][1]) - (P[c][0] - P[a][0]) * (P[b][1] - P[a][1])) / 2; };
 
-ANIM[1] = async () => {
-  state.status = "Start: species points in trait space";
-  await wait(900);
-  // triangles appear in a left-to-right sweep
-  state.status = "Delaunay triangulation";
-  const order = T.map((_, i) => i).sort((a, b) => CEN[a][0] - CEN[b][0]);
+// ---- Step 1: points -> triangulation -> R and L of the largest triangle
+async function step1() {
+  await wait(700);
+  const order = allIdx().sort((a, b) => CEN[a][0] - CEN[b][0]);
   await tween(2600, t => {
     const n = Math.floor(ease(t) * NT);
-    for (let k = 0; k < NT; k++) { const i = order[k]; state.tri[i] = k < n ? COL.kept : null; }
+    for (let k = 0; k < NT; k++) state.tri[order[k]] = k < n ? COL.kept : null;
   });
   state.tri.fill(COL.kept);
-  state.status = NT + " triangles";
   await wait(700);
 
-  // worked examples: one big (in the hole), one ring triangle, one in the small cluster
-  const pick = (fx, fy, maxR) => T.map((_, i) => i).filter(i => R[i] < maxR)
-    .sort((a, b) => Math.hypot(CEN[a][0] - fx, CEN[a][1] - fy) - Math.hypot(CEN[b][0] - fx, CEN[b][1] - fy))[0];
-  const examples = [pick(3.4, 3.2, 2.2), pick(5.6, 1.2, 1), pick(9.0, 7.2, 1)];
-  for (const i of examples) {
-    state.status = "Circumradius R and longest edge L of a triangle";
-    const ol = outlineOv(i); await fadeIn(ol, 250);
-    const circ = overlay(c => {
-      c.strokeStyle = "#333"; c.lineWidth = 1.6; c.setLineDash([6, 5]);
-      c.beginPath(); c.arc(sx(CC[i].x), sy(CC[i].y), R[i] * SC, 0, 2 * Math.PI * circ.sweep); c.stroke(); c.setLineDash([]);
-      if (circ.sweep >= 1) {   // radius line to a vertex
-        const v = T[i][0]; c.lineWidth = 1.4;
-        c.beginPath(); c.moveTo(sx(CC[i].x), sy(CC[i].y)); c.lineTo(sx(P[v][0]), sy(P[v][1])); c.stroke();
-        c.fillStyle = "#333"; c.beginPath(); c.arc(sx(CC[i].x), sy(CC[i].y), 3, 0, 2 * Math.PI); c.fill();
-      }
-    });
-    circ.sweep = 0; circ.a = 1;
-    await tween(800, t => circ.sweep = ease(t));
-    const v0 = T[i][0], rmx = (sx(CC[i].x) + sx(P[v0][0])) / 2, rmy = (sy(CC[i].y) + sy(P[v0][1])) / 2;
-    const tR = textOv("R = " + f2(R[i]), rmx, rmy - 14, { bold: true, align: "center", size: 16 }); await fadeIn(tR, 250);
-    await wait(500);
-    const le = edgeOv(LE[i].a, LE[i].b); await fadeIn(le, 300);
-    const ax = sx(P[LE[i].a][0]), ay = sy(P[LE[i].a][1]), bx = sx(P[LE[i].b][0]), by = sy(P[LE[i].b][1]);
-    let nx = -(by - ay), ny = bx - ax; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
-    const mx = (ax + bx) / 2, my = (ay + by) / 2, ccx = sx(CC[i].x), ccy = sy(CC[i].y);
-    if ((mx + nx - ccx) ** 2 + (my + ny - ccy) ** 2 < (mx - ccx) ** 2 + (my - ccy) ** 2) { nx = -nx; ny = -ny; }  // point away from circumcentre
-    const tL = textOv("L = " + f2(L[i]), mx + nx * 18, my + ny * 18, { bold: true, align: "center", size: 16 }); await fadeIn(tL, 250);
-    await wait(1300);
-    await clearOverlays(300);
-  }
-  // compute for every triangle
-  const order2 = T.map((_, i) => i).sort((a, b) => CEN[a][0] - CEN[b][0]);
-  await tween(2400, t => {
-    const n = Math.floor(t * NT);
-    state.status = "R and L computed: " + n + " / " + NT;
-    for (let k = 0; k < NT; k++) state.tri[order2[k]] = (k < n && k > n - 14) ? mix(COL.kept, COL.hi, .45) : COL.kept;
+  const i = allIdx().reduce((b, j) => area(j) > area(b) ? j : b, 0);   // largest triangle
+  const ol = outlineOv(i); await fadeIn(ol, 300);
+  const circ = overlay(c => {
+    c.strokeStyle = "#333"; c.lineWidth = 1.6; c.setLineDash([6, 5]);
+    c.beginPath(); c.arc(sx(CC[i].x), sy(CC[i].y), R[i] * SC, 0, 2 * Math.PI * circ.sweep); c.stroke(); c.setLineDash([]);
+    if (circ.sweep >= 1) {
+      const v = T[i][0]; c.lineWidth = 1.4;
+      c.beginPath(); c.moveTo(sx(CC[i].x), sy(CC[i].y)); c.lineTo(sx(P[v][0]), sy(P[v][1])); c.stroke();
+      c.fillStyle = "#333"; c.beginPath(); c.arc(sx(CC[i].x), sy(CC[i].y), 3, 0, 2 * Math.PI); c.fill();
+    }
   });
-  state.tri.fill(COL.kept);
-  state.status = "R and L stored for all " + NT + " triangles";
-  draw();
-};
+  circ.sweep = 0; circ.a = 1;
+  await tween(900, t => circ.sweep = ease(t));
+  const v0 = T[i][0], rmx = (sx(CC[i].x) + sx(P[v0][0])) / 2, rmy = (sy(CC[i].y) + sy(P[v0][1])) / 2;
+  await fadeIn(textOv("R = " + f2(R[i]), rmx, rmy - 14, { bold: true, align: "center" }), 300);
+  await wait(700);
+  await fadeIn(edgeOv(LE[i].a, LE[i].b), 300);
+  const ax = sx(P[LE[i].a][0]), ay = sy(P[LE[i].a][1]), bx = sx(P[LE[i].b][0]), by = sy(P[LE[i].b][1]);
+  let nx = -(by - ay), ny = bx - ax; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+  const mx = (ax + bx) / 2, my = (ay + by) / 2, ccx = sx(CC[i].x), ccy = sy(CC[i].y);
+  if ((mx + nx - ccx) ** 2 + (my + ny - ccy) ** 2 < (mx - ccx) ** 2 + (my - ccy) ** 2) { nx = -nx; ny = -ny; }
+  await fadeIn(textOv("L = " + f2(L[i]), mx + nx * 20, my + ny * 20, { bold: true, align: "center" }), 300);
+}
 
-ANIM[2] = async () => {
-  state.status = "Minimum spanning tree (MST) of the triangulation";
-  await recolor(T.map((_, i) => i), COL.kept, COL.keptLight, 600);
-  await tween(3200, t => { state.mstN = Math.floor(ease(t) * MST.length); state.status = "MST: " + state.mstN + " / " + MST.length + " edges (shortest first)"; });
-  state.mstN = MST.length; state.status = "MST: " + MST.length + " edges connect all " + P.length + " points";
+// ---- Step 2: MST, Tukey fence, gap edge, clusters (no white triangle edges)
+async function step2() {
+  await tween(600, t => { const c = mix(COL.kept, COL.keptLight, ease(t)); state.tri.fill(c); state.strokeA = 1 - t; });
+  state.tri.fill(COL.keptLight); state.strokeA = 0;
+  await tween(3200, t => state.mstN = Math.floor(ease(t) * MST.length));
+  state.mstN = MST.length;
   await wait(700);
 
-  // inset: MST edge lengths + Tukey fence (lower-right empty corner of the plot)
   const box = { x0: sx(7.45), x1: sx(10.55), y0: sy(2.55), y1: sy(0.05) };
   const lmax = Math.max(...mstLen) * 1.06, ix = v => box.x0 + 14 + (v / lmax) * (box.x1 - box.x0 - 28);
   const jit = mstLen.map((_, k) => ((k * 7919) % 97) / 97 - .5);
@@ -464,7 +444,7 @@ ANIM[2] = async () => {
     c.strokeStyle = "#555"; c.beginPath(); c.moveTo(box.x0 + 14, yb); c.lineTo(box.x1 - 14, yb); c.stroke();
     c.fillStyle = COL.text; c.font = "13px " + FONT; c.textAlign = "center"; c.textBaseline = "top";
     for (let v = 0; v <= lmax; v += 0.5) { c.beginPath(); c.moveTo(ix(v), yb); c.lineTo(ix(v), yb + 4); c.stroke(); c.fillText(v.toFixed(1), ix(v), yb + 6); }
-    c.textAlign = "left"; c.textBaseline = "top"; c.fillText("MST edge length", box.x0 + 10, box.y0 + 7);
+    c.textAlign = "left"; c.fillText("MST edge length", box.x0 + 10, box.y0 + 7);
     mstLen.forEach((v, k) => {
       const out = v > FENCE && inset.fence > .99;
       c.fillStyle = out ? COL.removed : "rgba(26,26,26,.55)";
@@ -479,12 +459,9 @@ ANIM[2] = async () => {
   }, true);
   inset.fence = 0;
   await fadeIn(inset, 400);
-  state.status = "Tukey fence on MST edge lengths: Q3 + k·IQR, k = " + K_IQR;
   await tween(900, t => inset.fence = ease(t));
   inset.fence = 1; await wait(900);
 
-  // the gap edge(s)
-  state.status = GAPS.length + " MST edge" + (GAPS.length === 1 ? "" : "s") + " longer than " + f2(FENCE) + " → removed";
   const gl = GAPS.map(e => edgeOv(e.a, e.b, COL.removed, 5));
   await fadeIn(gl, 300); await wait(250); await fadeOut(gl, 300); await fadeIn(gl, 300);
   await tween(500, t => state.gapA = t);
@@ -492,106 +469,98 @@ ANIM[2] = async () => {
   const gtxt = GAPS.map(e => { const mx = (P[e.a][0] + P[e.b][0]) / 2, my = (P[e.a][1] + P[e.b][1]) / 2; return textOv(f2(e.len) + " > " + f2(FENCE), sx(mx) + 8, sy(my) - 16, { bold: true, color: COL.removed, size: 16 }); });
   await fadeIn(gtxt, 300); await wait(1200);
 
-  // clusters
-  const big = MST_CL.filter(c => c.length >= MIN_CLUSTER), small = MST_CL.filter(c => c.length < MIN_CLUSTER);
-  for (let k = 0; k < big.length; k++) {
-    state.status = "Cluster " + (k + 1) + ": " + big[k].length + " points (≥ " + MIN_CLUSTER + ", kept)";
-    const rings = big[k].map(v => ringOv(v, COL.hi, 8));
-    await fadeIn(rings, 300); await wait(700); await fadeOut(rings, 300);
-  }
-  state.status = big.length + " clusters kept" + (small.length ? ", " + small.length + " cluster(s) < " + MIN_CLUSTER + " points excluded" : "; no cluster has < " + MIN_CLUSTER + " points");
-  await clearOverlays(500);
-};
+  // ends here, with the fence chart and the gap edge still on screen
+}
 
-async function removalSequence(res, key, keyName, ids, slowN = 5) {
-  // animate a removal run produced by runRemoval()
-  const n = res.removed.length;
-  for (let k = 0; k < n; k++) {
+// ---- shared removal animation (every removed triangle shows its circumcircle / longest edge)
+async function removalSequence(res, keyName, slowN = 5) {
+  for (let k = 0; k < res.removed.length; k++) {
     const i = res.removed[k], slow = k < slowN;
-    state.status = "Removed " + (k + 1) + " · " + keyName + " = " + f2(key[i]);
+    const ovs = [keyName === "R" ? circleOv(i, COL.removed) : edgeOv(LE[i].a, LE[i].b, "#111", 3)];
     if (slow) {
-      const ovs = [outlineOv(i, "#222", 2)];
-      if (keyName === "R" && R[i] < 3.5) ovs.push(circleOv(i, COL.removed));
-      if (keyName === "L") ovs.push(edgeOv(LE[i].a, LE[i].b, "#111", 3));
+      ovs.push(outlineOv(i, "#222", 2));
       await fadeIn(ovs, 200);
       await recolor([i], COL.kept, COL.removed, 350);
       await fadeOut(ovs, 200);
     } else {
-      const dur = Math.max(45, 260 - k * 9);
-      await recolor([i], COL.kept, COL.removed, dur);
+      ovs.forEach(o => o.a = 1);
+      await recolor([i], COL.kept, COL.removed, Math.max(70, 300 - k * 9));
+      state.over = state.over.filter(o => !ovs.includes(o));
     }
   }
-  return n;
 }
-async function showStop(res, keyName, prefix = "") {
-  if (res.stop === null) { state.status = prefix + "nothing left to remove"; await wait(800); return; }
-  const i = res.stop, ovs = [outlineOv(i, "#222", 2.6)];
-  if (keyName === "R") ovs.push(circleOv(i, "#222"));
-  else ovs.push(edgeOv(LE[i].a, LE[i].b, "#111", 3.6));
+async function showStop(res, keyName) {
+  if (res.stop === null) { await wait(600); return; }
+  const i = res.stop, val = keyName === "R" ? R[i] : L[i];
+  const ovs = [outlineOv(i, "#222", 2.6), keyName === "R" ? circleOv(i, "#222") : edgeOv(LE[i].a, LE[i].b, "#111", 3.6)];
   await fadeIn(ovs, 300);
-  const val = keyName === "R" ? R[i] : L[i];
-  state.status = prefix + "next " + keyName + " = " + f2(val) + " — removing it would leave a point with no triangle";
   const ring = ringOv(res.blocker, COL.removed, 11);
   await tween(1200, t => ring.a = 0.5 + 0.5 * Math.sin(t * Math.PI * 5));
   ring.a = 1;
-  state.status = prefix + "stop at " + keyName + " = " + f2(val);
+  const [cx, cy] = CEN[i], right = cx < 7;
+  await fadeIn(textOv("stop: " + keyName + " = " + f2(val), sx(cx) + (right ? 1 : -1) * (Math.min(R[i], 1.2) * SC + 14), sy(cy) - 4,
+    { bold: true, color: COL.removed, align: right ? "left" : "right" }), 300);
   await wait(1300);
 }
 
-ANIM[3] = async () => {
-  state.status = "";
+// ---- Step 3: circumradius filtering
+async function step3() {
   await tween(600, t => { state.mstA = 1 - t; state.gapA = 1 - t; });
   state.mstN = 0; state.gapA = 0; state.mstA = 1;
-  await recolor(T.map((_, i) => i), COL.keptLight, COL.kept, 500);
-  state.status = "Triangles sorted by circumradius R, largest first";
-  await wait(800);
-  await removalSequence(S3, R, "R");
+  await tween(500, t => { const c = mix(COL.keptLight, COL.kept, ease(t)); state.tri.fill(c); state.strokeA = t; });
+  state.tri.fill(COL.kept); state.strokeA = 1;
+  await wait(600);
+  await removalSequence(S3, "R");
   await showStop(S3, "R");
   await clearOverlays(400);
-  state.status = S3.removed.length + " removed, stopped at R = " + FILL.R3;
-  draw();
-};
+}
 
-ANIM[4] = async () => {
-  state.status = "Removed triangles set aside";
-  await recolor(S3.removed, COL.removed, COL.earlier, 700);
-  state.status = "Remaining triangles sorted by longest edge L, largest first";
-  await wait(900);
-  await removalSequence(S4, L, "L");
+// ---- Step 4: edge-length filtering (no white triangle edges)
+async function step4() {
+  await tween(700, t => { const c = mix(COL.removed, COL.earlier, ease(t)); S3.removed.forEach(i => state.tri[i] = c); state.strokeGrayA = 1 - t; });
+  S3.removed.forEach(i => state.tri[i] = COL.earlier); state.strokeGrayA = 0;
+  await wait(700);
+  await removalSequence(S4, "L");
   await showStop(S4, "L");
   await clearOverlays(400);
-  state.status = S4.removed.length + " more removed, stopped at L = " + FILL.L4;
-  draw();
-};
+}
 
-ANIM[5] = async () => {
-  state.status = "Remaining triangles form " + CLUSTERS.length + " clusters";
-  if (S4.removed.length) await recolor(S4.removed, COL.removed, COL.earlier, 600);
-  await wait(500);
-  for (let c = 0; c < S5.length; c++) {
-    const mine = new Set(S5[c].tris), others = T.map((_, i) => i).filter(i => state.tri[i] === COL.kept && !mine.has(i));
-    await tween(400, t => others.forEach(i => state.triA[i] = 1 - .65 * t));
-    let pass = 1;
-    for (const ev of S5[c].events) {
-      const tag = "Cluster " + (c + 1) + " · step " + (ev.kind === "R" ? 3 : 4) + " · ";
-      state.status = tag + (ev.kind === "R" ? "largest R first" : "longest L first");
+// ---- Step 5: one click per cluster
+function step5cluster(c) {
+  return async () => {
+    if (c === 0) {
+      // first cluster: show R and L of its largest remaining triangle(s) directly, no pulsing / dimming
+      await tween(500, t => state.strokeGrayA = t);
+      state.strokeGrayA = 1;
+      if (S4.removed.length) await recolor(S4.removed, COL.removed, COL.earlier, 600);
+      const alive = S5[0].tris.filter(i => alive5[i]);
+      const iR = alive.reduce((b, i) => R[i] > R[b] ? i : b, alive[0]);
+      const iL = alive.reduce((b, i) => L[i] > L[b] ? i : b, alive[0]);
+      const same = iR === iL;
+      const lab = (i, side) => { const [cx, cy] = CEN[i]; return [sx(cx) + side * (R[i] * SC + 34), sy(cy)]; };
+      const [rx, ry] = lab(iR, 1), [lx, ly] = lab(iL, 1);
+      await fadeIn([outlineOv(iR, "#222", 2.4), circleOv(iR, "#222")], 400);
+      await fadeIn(textOv("R = " + f2(R[iR]), rx, ry - 12, { bold: true }), 300);
       await wait(500);
-      if (ev.removed.length) await removalSequence(ev, ev.kind === "R" ? R : L, ev.kind, null, 3);
-      await showStop(ev, ev.kind, tag);
+      await fadeIn([outlineOv(iL, "#222", 2.4), edgeOv(LE[iL].a, LE[iL].b, "#111", 3.6)], 400);
+      await fadeIn(textOv("L = " + f2(L[iL]), lx, ly + 12, { bold: true }), 300);
+      return;
+    }
+    await clearOverlays(300);
+    const mine = new Set(S5[c].tris), others = allIdx().filter(i => state.tri[i] === COL.kept && !mine.has(i));
+    await tween(400, t => others.forEach(i => state.triA[i] = 1 - .65 * t));
+    for (const ev of S5[c].events) {
+      if (ev.removed.length) await removalSequence(ev, ev.kind, 3);
+      await showStop(ev, ev.kind);
       await clearOverlays(250);
     }
-    const nrem = S5[c].events.reduce((s, e) => s + e.removed.length, 0);
-    state.status = "Cluster " + (c + 1) + ": " + nrem + " more removed";
-    await wait(900);
     await tween(400, t => others.forEach(i => state.triA[i] = .35 + .65 * t));
-  }
-  state.status = "Ultimately " + FINAL_CL.length + " clusters";
-  draw();
-};
+  };
+}
 
+// ---- Step 6: pink alpha triangles, then the alpha shape on its own
 function alphaOverlay(a, k) {
-  const i = a.tri, [cx, cy] = CEN[i];
-  const left = cx < 5;
+  const i = a.tri, [cx, cy] = CEN[i], left = cx < 5;
   const lx = sx(cx + (left ? 1.25 : -1.45)), ly = sy(cy + (left ? -2.15 : -0.75));
   const circ = circleOv(i, COL.removed, [4, 4]);
   const lead = overlay(c => {
@@ -599,81 +568,96 @@ function alphaOverlay(a, k) {
     c.beginPath(); c.moveTo(sx(cx), sy(cy)); c.lineTo(lx - 4, ly - 10); c.stroke();
   });
   const txt = overlay(c => {
-    c.font = "26px " + FONT; c.textBaseline = "middle"; c.textAlign = "left";
     const a1 = "α", sub = String(k + 1), rest = " = " + f2(a.R);
-    const w1 = c.measureText(a1).width; c.font = "16px " + FONT; const w2 = c.measureText(sub).width;
-    c.lineJoin = "round"; c.lineWidth = 5; c.strokeStyle = "rgba(255,255,255,.9)"; c.fillStyle = COL.pink;
-    c.font = "26px " + FONT; c.strokeText(a1, lx, ly); c.fillText(a1, lx, ly);
-    c.font = "16px " + FONT; c.strokeText(sub, lx + w1, ly + 9); c.fillText(sub, lx + w1, ly + 9);
+    c.textBaseline = "middle"; c.textAlign = "left"; c.lineJoin = "round"; c.lineWidth = 5;
+    c.strokeStyle = "rgba(255,255,255,.9)"; c.fillStyle = COL.pink;
+    c.font = "26px " + FONT; const w1 = c.measureText(a1).width; c.strokeText(a1, lx, ly); c.fillText(a1, lx, ly);
+    c.font = "16px " + FONT; const w2 = c.measureText(sub).width; c.strokeText(sub, lx + w1, ly + 9); c.fillText(sub, lx + w1, ly + 9);
     c.font = "26px " + FONT; c.strokeText(rest, lx + w1 + w2, ly); c.fillText(rest, lx + w1 + w2, ly);
   }, true);
   return [circ, lead, txt];
 }
-
-ANIM[6] = async () => {
-  state.status = "";
+async function step6a() {
   await recolor(removed5, COL.removed, COL.earlier, 700);
   for (let k = 0; k < ALPHA.length; k++) {
-    const a = ALPHA[k], tris = S5[k].tris.filter(i => alive5[i]).sort((x, y) => R[y] - R[x]);
-    state.status = "Cluster " + (k + 1) + ": find the largest surviving R";
-    // quick scan from small to large R, landing on the maximum
-    const scan = tris.slice(0, 12).reverse();
-    for (const i of scan) {
-      const o = outlineOv(i, "#222", 2); o.a = 1;
-      await wait(i === a.tri ? 0 : 90);
-      state.over = state.over.filter(x => x !== o);
-    }
-    await recolor([a.tri], COL.kept, COL.pink, 500);
-    const ovs = alphaOverlay(a, k);
-    await fadeIn(ovs, 500);
-    state.status = "Cluster " + (k + 1) + ": characteristic α = largest R = " + f2(a.R);
-    await wait(1300);
+    await recolor([ALPHA[k].tri], COL.kept, COL.pink, 500);
+    await fadeIn(alphaOverlay(ALPHA[k], k), 500);
+    await wait(700);
   }
-  state.status = "Characteristic α values = " + FILL.ALPHAS;
-  draw();
+}
+const BOUNDARY = (() => {           // edges used by exactly one final triangle = outline of the alpha shape
+  const m = new Map();
+  alive5.forEach((a, i) => { if (!a) return; for (let k = 0; k < 3; k++) { const u = T[i][k], v = T[i][(k + 1) % 3], key = ekey(u, v); m.set(key, m.has(key) ? null : [u, v]); } });
+  return [...m.values()].filter(Boolean);
+})();
+async function step6b() {
+  const gone = allIdx().filter(i => !alive5[i]);
+  await clearOverlays(400);
+  await tween(900, t => {
+    gone.forEach(i => state.triA[i] = 1 - t);
+    state.strokeA = 1 - t;
+    const c = mix(COL.pink, COL.kept, ease(t)); ALPHA.forEach(a => state.tri[a.tri] = c);
+  });
+  gone.forEach(i => state.tri[i] = null); ALPHA.forEach(a => state.tri[a.tri] = COL.kept); state.strokeA = 0;
+  const outline = overlay(c => {
+    c.strokeStyle = COL.hi; c.lineWidth = 2; c.lineCap = "round"; c.beginPath();
+    for (const [u, v] of BOUNDARY) { c.moveTo(sx(P[u][0]), sy(P[u][1])); c.lineTo(sx(P[v][0]), sy(P[v][1])); }
+    c.stroke();
+  });
+  await fadeIn(outline, 600);
+}
+
+const PHASES = {
+  1: [step1], 2: [step2], 3: [step3], 4: [step4],
+  5: S5.map((_, c) => step5cluster(c)),
+  6: [step6a, step6b],
 };
 
 // =====================================================================
-// CONTROLS
+// CONTROLS — click / space / Enter plays the next phase
 // =====================================================================
 const btn = document.getElementById("play");
-let current = STEP || 1, playing = false;
+const URL_STEP = +((location.search.match(/[?&]step=([1-6])/) || [])[1] || 0);
+let current = STEP || URL_STEP || 1, phase = 0, playing = false, allMode = false;
 
+function setTabs() { document.querySelectorAll("#tabs button[data-k]").forEach(b => b.classList.toggle("on", +b.dataset.k === current)); }
+function setBtn() { btn.textContent = playing ? "■ Skip" : phase === 0 ? "▶ Play" : phase < PHASES[current].length ? "▶ Next" : "↺ Replay"; }
 function show(k, atEnd = false) {
   runId++; playing = false; current = k;
   state = atEnd ? applyEnd(k) : startState(k);
-  if (atEnd) { state.step = k; if (k === 6) finishStep6Overlays(); }
-  btn.textContent = atEnd ? "↺ Replay" : "▶ Play";
-  document.querySelectorAll("#tabs button[data-k]").forEach(b => b.classList.toggle("on", +b.dataset.k === k));
-  draw();
+  state.step = k;
+  if (atEnd && k === 6) finishStep6Overlays();
+  phase = atEnd ? PHASES[k].length : 0;
+  setTabs(); setBtn(); draw();
 }
-async function play(all = false) {
-  show(current);
-  const id = runId; playing = true; btn.textContent = "■ Stop";
+async function playNext() {
+  if (phase >= PHASES[current].length) show(current);       // replay from the start of the step
+  const id = runId; playing = true; setBtn();
   try {
-    for (let k = current; k <= (all ? 6 : current); k++) {
-      if (k !== current) { current = k; state = startState(k); document.querySelectorAll("#tabs button[data-k]").forEach(b => b.classList.toggle("on", +b.dataset.k === k)); draw(); await wait(700); }
-      await ANIM[k]();
-    }
-    if (id === runId) { playing = false; btn.textContent = "↺ Replay"; }
+    do {
+      await PHASES[current][phase](); phase++;
+      if (allMode && phase >= PHASES[current].length && current < 6) {
+        current++; phase = 0; state = startState(current); state.step = current; setTabs(); draw(); await wait(700);
+      }
+    } while (allMode && phase < PHASES[current].length);
+    if (id === runId) { playing = false; allMode = false; setBtn(); }
   } catch (e) { if (e !== CANCEL) throw e; }
 }
-btn.onclick = () => { if (playing) show(current, true); else play(STEP === 0 && allMode); };
-cv.onclick = () => { if (!playing) play(STEP === 0 && allMode); };
-document.addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); btn.onclick(); } });
+btn.onclick = () => { if (playing) show(current, true); else playNext(); };
+cv.onclick = () => { if (!playing) playNext(); };
+document.addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); if (!playing) playNext(); } });
 
-let allMode = false;
 if (STEP === 0) {
   const tabs = document.getElementById("tabs"); tabs.style.display = "flex";
   for (let k = 1; k <= 6; k++) { const b = document.createElement("button"); b.textContent = k; b.dataset.k = k; b.onclick = () => { allMode = false; show(k); }; tabs.appendChild(b); }
   const pa = document.createElement("button"); pa.textContent = "▶ Play all 1–6";
-  pa.onclick = () => { allMode = true; current = 1; play(true); }; tabs.appendChild(pa);
+  pa.onclick = () => { show(1); allMode = true; playNext(); }; tabs.appendChild(pa);
 }
 window.addEventListener("resize", resize);
 state = startState(current);
 show(current);
 resize();
-if (AUTOPLAY) play(STEP === 0);
+if (AUTOPLAY) playNext();
 </script>
 </body>
 </html>
